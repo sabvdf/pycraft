@@ -1,12 +1,15 @@
 from panda3d.core import GeomVertexData, GeomVertexFormat, Geom, GeomVertexWriter, GeomTriangles, Texture, Material, \
-    RenderState, TextureAttrib, MaterialAttrib, GeomNode, NodePath, CollisionNode, CollisionBox, LPoint3
+    RenderState, TextureAttrib, MaterialAttrib, GeomNode, NodePath, CollisionNode, CollisionBox, LPoint3, TextureStage, \
+    BitMask32
 
 
-class Block():
+class Block:
+    COLLIDE_MASK = BitMask32(0x10)
     textures = {}
     material = None
     block_geoms = {}
     geom_states = {}
+    destroy = []
     def __init__(self, base, geom_type, texture, x, y, z):
         # Create geometry if needed
         if geom_type not in Block.block_geoms:
@@ -145,26 +148,42 @@ class Block():
             Block.textures[texture] = TextureAttrib.make(tex)
 
         # Create default material if needed
-        if Block.material == None:
+        if Block.material is None:
             mat = Material("default")
-            mat.set_shininess(5.0)
-            mat.set_base_color((1, 1, 1, 1))
+            mat.setShininess(5.0)
+            mat.setBaseColor((1, 1, 1, 1))
             Block.material = MaterialAttrib.make(mat)
 
-        # Create new geom state
+        # Create new geometry state if needed
         if texture not in Block.geom_states:
             Block.geom_states[texture] = RenderState.make(Block.textures[texture], Block.material)
-
-        # Create geom node
+        # Create geometry node
         geom_node = GeomNode(f"{texture}@{x},{y},{z}")
-        geom_node.add_geom(Block.block_geoms[geom_type], Block.geom_states[texture])
+        geom_node.addGeom(Block.block_geoms[geom_type], Block.geom_states[texture])
         self.node_path = NodePath(geom_node)
 
-        self.node_path.reparent_to(base.render)
+        # Load destroy stage textures if needed
+        if not Block.destroy:
+            for i in range(10):
+                Block.destroy.append(Texture("Texture"))
+                Block.destroy[i].setup2dTexture()
+                Block.destroy[i].read(f"textures/block/destroy_stage_{i}.png")
+                Block.destroy[i].setMagfilter(Texture.FTNearest)
+                Block.destroy[i].setMinfilter(Texture.FTNearest)
+                self.destroy_ts = TextureStage("destroy")
+
+        self.node_path.reparentTo(base.render)
         self.node_path.setScale(0.5, 0.5, 0.5)
 
         self.collision_node = self.node_path.attachNewNode(CollisionNode("collider"))
         self.collision_node.node().addSolid(CollisionBox(LPoint3(0, 0, 0), 1, 1, 1))
+        self.collision_node.setCollideMask(Block.COLLIDE_MASK)
 
         self.x, self.y, self.z = x, y, z
         self.node_path.setPos(self.x, self.z, self.y)
+
+    def show_destroy_stage(self, stage):
+        if 0 <= stage <= 9:
+            self.node_path.setTexture(self.destroy_ts, Block.destroy[stage])
+        else:
+            self.node_path.clearTexture(self.destroy_ts)
