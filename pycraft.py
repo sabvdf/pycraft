@@ -60,11 +60,11 @@ class PyCraft(ShowBase):
         self.render.setLight(np_ambient)
 
         # Targeting
-        self.cTrav = CollisionTraverser('collisionTraverser')
+        self.cTrav = CollisionTraverser("collisionTraverser")
         self.targetHandler = CollisionHandlerQueue()
 
         self.cam.setPos(0, 0, 0)
-        picker_node = CollisionNode('gazeRay')
+        picker_node = CollisionNode("gazeRay")
         picker_np = self.cam.attachNewNode(picker_node)
         picker_node.setFromCollideMask(Block.COLLIDE_MASK)
         self.target_ray = CollisionSegment(0, 0, 0, 0, 5.5, 0)
@@ -145,15 +145,15 @@ class PyCraft(ShowBase):
                 for x in range(cols):
                     block_data = blocks_data[random.choice([1,8,9,34,46,144,164,255])]
                     textures = []
-                    for 
-                    block = Block(self, 1, block_data["name"], textures, block_data["hardness"], [Tool.TYPE_SHOVEL], Tool.NO_TOOL, x-13, y+random.choice([0,1]), z-13)
+                    block_model = json.load(open(f"models/block/{block_data["name"]}.json"))
+                    block = Block.make(self, block_data, block_model, x-13, y+random.choice([0,1]), z-13)
                     self.add_block(block)
                     self.block_colliders[block.collision_node] = block
 
-        self.taskMgr.setupTaskChain('game', numThreads=1, threadPriority=TP_high)
+        self.taskMgr.setupTaskChain("game", numThreads=1, threadPriority=TP_high)
         self.game_clock = ClockObject()
         self.game_clock.tick()
-        self.game_task = self.taskMgr.add(self.game_update, 'game_update', taskChain='game')
+        self.game_task = self.taskMgr.add(self.game_update, "game_update", taskChain="game")
 
 
     def up_key(self, state):

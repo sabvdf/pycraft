@@ -15,23 +15,75 @@ class Block:
 
     COLLIDE_MASK = BitMask32(0x10)
     textures = {}
-    material = None
+    materials = {}
     block_geoms = {}
     geom_states = {}
     destroy = []
     destroyed_stage = -1
 
-    def __init__(self, base, geom_type, name, textures, hardness, best_tools, minimum_tool, x, y, z):
+    @staticmethod
+    def make(base, block_data, block_model, x, y, z):
+        textures = []
+        tints = []
+        texture_data = block_model["textures"]
+        match block_model["parent"]:
+            case "minecraft:block/cube_all":
+                geom_type = Block.SINGLE_CUBE
+                textures.append(texture_data["all"])
+                if "elements" in block_model:
+                    tints.append(block_model["elements"][0]["faces"]["top"].get("tintindex", None))
+            case "minecraft:block/cube_column":
+                geom_type = Block.ONLY_SIDES
+                textures.append(texture_data["side"])
+                textures.append(texture_data["end"])
+                if "elements" in block_model:
+                    tints.append(block_model["elements"][0]["faces"]["north"].get("tintindex", None))
+                    tints.append(block_model["elements"][0]["faces"]["top"].get("tintindex", None))
+            case "minecraft:block/cube_column_horizontal":
+                geom_type = Block.ONLY_SIDES
+                textures.append(texture_data["side"])
+                textures.append(texture_data["end"])
+                if "elements" in block_model:
+                    tints.append(block_model["elements"][0]["faces"]["north"].get("tintindex", None))
+                    tints.append(block_model["elements"][0]["faces"]["up"].get("tintindex", None))
+            case _:
+                if texture_data["top"] and texture_data["bottom"] and texture_data["side"]:
+                    geom_type = Block.TOP_BOTTOM
+                    textures.append(texture_data["side"])
+                    textures.append(texture_data["top"])
+                    textures.append(texture_data["bottom"])
+                    if "elements" in block_model:
+                        tints.append(block_model["elements"][0]["faces"]["north"].get("tintindex", None))
+                        tints.append(block_model["elements"][0]["faces"]["up"].get("tintindex", None))
+                        tints.append(block_model["elements"][0]["faces"]["down"].get("tintindex", None))
+                else:
+                    geom_type = Block.ALL_DIFFERENT
+                    textures.append(texture_data["west"])
+                    textures.append(texture_data["east"])
+                    textures.append(texture_data["south"])
+                    textures.append(texture_data["north"])
+                    textures.append(texture_data["top"])
+                    textures.append(texture_data["bottom"])
+                    if "elements" in block_model:
+                        tints.append(block_model["elements"][0]["faces"]["west"].get("tintindex", None))
+                        tints.append(block_model["elements"][0]["faces"]["east"].get("tintindex", None))
+                        tints.append(block_model["elements"][0]["faces"]["south"].get("tintindex", None))
+                        tints.append(block_model["elements"][0]["faces"]["north"].get("tintindex", None))
+                        tints.append(block_model["elements"][0]["faces"]["up"].get("tintindex", None))
+                        tints.append(block_model["elements"][0]["faces"]["down"].get("tintindex", None))
+        return Block(base, geom_type, block_data["name"], textures, tints, block_data["hardness"], [Tool.TYPE_SHOVEL], Tool.NO_TOOL, x, y, z)
+
+    def __init__(self, base, geom_type, name, textures, tints, hardness, best_tools, minimum_tool, x, y, z):
         self.__name = name
         # Create geometry if needed
         if geom_type not in Block.block_geoms:
             # Creating vertex data.
-            block_vdata = GeomVertexData('cube', GeomVertexFormat.getV3n3t2(), Geom.UHStatic)
+            block_vdata = GeomVertexData("cube", GeomVertexFormat.getV3n3t2(), Geom.UHStatic)
             block_vdata.setNumRows(3)
 
-            vertex = GeomVertexWriter(block_vdata, 'vertex')
-            normal = GeomVertexWriter(block_vdata, 'normal')
-            texcoord = GeomVertexWriter(block_vdata, 'texcoord')
+            vertex = GeomVertexWriter(block_vdata, "vertex")
+            normal = GeomVertexWriter(block_vdata, "normal")
+            texcoord = GeomVertexWriter(block_vdata, "texcoord")
 
             vertex.addData3(0, 0, 0)
             vertex.addData3(0, 0, 0)
@@ -273,21 +325,16 @@ class Block:
             for texture in textures:
                 Block.textures[self.__name].append(self.get_texture(texture))
 
-        # Create default material if needed
-        if Block.material is None:
-            mat = Material("default")
-            mat.setShininess(5.0)
-            mat.setBaseColor((1, 1, 1, 1))
-            Block.material = MaterialAttrib.make(mat)
-
         # Create geometry node
         geom_node = GeomNode(f"{self.__name}@{x},{y},{z}")
         # Create new geometry state if needed
         for t in range(len(textures)):
             texture = textures[t]
-            if texture not in Block.geom_states:
-                Block.geom_states[texture] = RenderState.make(Block.textures[self.name][t], Block.material)
-            geom_node.addGeom(Block.block_geoms[geom_type], Block.geom_states[texture])
+            tint = tints[t] if len(tints) > t else ""
+            geom_index = f"{texture}{tint}"
+            if geom_index not in Block.geom_states:
+                Block.geom_states[geom_index] = RenderState.make(Block.textures[self.__name][t], self.get_material(tint))
+            geom_node.addGeom(Block.block_geoms[geom_type][t], Block.geom_states[geom_index])
         self.node_path = NodePath(geom_node)
 
         # Load destroy stage textures if needed
@@ -320,11 +367,27 @@ class Block:
     def __str__(self):
         return f"{self.__name} @ {self.x},{self.y},{self.z}"
 
+    def get_material(self, tint):
+        try:
+            tint_index = int(tint)
+        except (TypeError, ValueError):
+            tint_index = None
+        if tint_index not in Block.materials:
+            mat = Material("default")
+            mat.setShininess(5.0)
+            match tint_index:
+                case 0:
+                    mat.setBaseColor((0, 1, 0, 1))
+                case _:
+                    mat.setBaseColor((1, 1, 1, 1))
+            Block.materials[tint_index] = MaterialAttrib.make(mat)
+        return Block.materials[tint_index]
+
     @staticmethod
     def get_texture(texture):
         tex = Texture("Texture")
         tex.setup2dTexture()
-        tex.read(f"textures/block/{texture}.png")
+        tex.read(f"textures/{texture}.png".replace("minecraft:",""))
         tex.setMagfilter(Texture.FTNearest)
         tex.setMinfilter(Texture.FTNearest)
         return TextureAttrib.make(tex)
