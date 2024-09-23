@@ -1,5 +1,5 @@
+import json
 import random
-import time
 
 from direct.directtools.DirectGeometry import LineNodePath
 from direct.gui.OnscreenImage import OnscreenImage
@@ -134,6 +134,8 @@ class PyCraft(ShowBase):
         self.crosshair.getTexture().setMagfilter(SamplerState.FT_nearest)
         self.crosshair.getTexture().setMinfilter(SamplerState.FT_nearest)
 
+        blocks_data = json.load(open("blocks.json"))
+
         # Generate world
         cols, rows, layers = 27, 27, 2
         self.blocks = [[[None for _ in range(cols)] for _ in range(layers)] for _ in range(rows)]
@@ -141,7 +143,10 @@ class PyCraft(ShowBase):
         for y in range(layers-1):
             for z in range(rows):
                 for x in range(cols):
-                    block = Block(self, 1, random.choice(["stone","dirt","sand","red_wool","iron_block","bricks","netherrack","packed_ice","soul_soil"]), 0.5, [Tool.TYPE_SHOVEL], Tool.NO_TOOL, x-13, y+random.choice([0,1]), z-13)
+                    block_data = blocks_data[random.choice([1,8,9,34,46,144,164,255])]
+                    textures = []
+                    for 
+                    block = Block(self, 1, block_data["name"], textures, block_data["hardness"], [Tool.TYPE_SHOVEL], Tool.NO_TOOL, x-13, y+random.choice([0,1]), z-13)
                     self.add_block(block)
                     self.block_colliders[block.collision_node] = block
 
