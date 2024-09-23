@@ -10,9 +10,14 @@ from panda3d.core import DirectionalLight, AmbientLight, WindowProperties, \
     CullFaceAttrib, ColorWriteAttrib, ClockObject, loadPrcFileData, TP_high
 
 from block import Block
+from tool import Tool
+
 
 class PyCraft(ShowBase):
     target_block = None
+    destroying = None
+    destroy_ticks = 0
+    destroyed_ticks = 0
     ticks = 0
 
     def __init__(self):
@@ -136,7 +141,7 @@ class PyCraft(ShowBase):
         for y in range(layers-1):
             for z in range(rows):
                 for x in range(cols):
-                    block = Block(self, 1, random.choice(["stone","dirt","sand","red_wool","iron_block","bricks","netherrack","packed_ice","soul_soil"]), x-13, y+random.choice([0,1]), z-13)
+                    block = Block(self, 1, random.choice(["stone","dirt","sand","red_wool","iron_block","bricks","netherrack","packed_ice","soul_soil"]), 0.5, [Tool.TYPE_SHOVEL], Tool.NO_TOOL, x-13, y+random.choice([0,1]), z-13)
                     self.add_block(block)
                     self.block_colliders[block.collision_node] = block
 
@@ -201,19 +206,49 @@ class PyCraft(ShowBase):
             target = self.targetHandler.getEntry(0).getIntoNodePath()
             if target in self.block_colliders:
                 if self.target_block != self.block_colliders[target]:
-                    self.target_block = self.block_colliders[target]
+                    self.target(self.block_colliders[target])
             else:
-                self.target_block = None
-            self.highlight.setPos(self.target_block.node_path.getPos())
+                self.target(None)
+        else:
+            self.target(None)
+
+        if self.__break_key:
+            if self.target_block and not self.destroying:
+                self.destroy_block(self.target_block)
+        elif self.destroying:
+            self.destroy_block(None)
+
+        return task.cont
+
+    def destroy_block(self, target):
+        if self.destroying == target:
+            return
+
+        if self.destroying:
+            self.destroying.destroy_stage(-1)
+
+        self.destroying = target
+        self.destroy_ticks = 0 if target is None else target.destroy_ticks(1)
+        self.destroyed_ticks = 0
+        if target:
+            target.destroy_stage(0)
+
+    def target(self, target):
+        if target == self.target_block:
+            return
+
+        if self.destroying:
+            self.destroy_block(target)
+
+        if target:
+            self.highlight.setPos(target.node_path.getPos())
             self.highlight.show()
         else:
             self.highlight.hide()
+        self.target_block = target
 
-        if self.__break_key:
-            if self.target_block:
-                self.destroying = True
-
-        return task.cont
+    def destroyed(self, block):
+        print(f"{block} destroyed!")
 
     def add_block(self, block):
         self.blocks[block.x][block.y][block.z] = block
@@ -230,6 +265,8 @@ class PyCraft(ShowBase):
         return task.cont
 
     def game_tick(self):
-        pass
+        if self.destroying:
+            self.destroyed_ticks += 1
+            self.target_block.destroy_stage(self.destroyed_ticks / self.destroy_ticks)
 
 PyCraft().run()

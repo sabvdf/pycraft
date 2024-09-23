@@ -1,6 +1,10 @@
+import math
+
 from panda3d.core import GeomVertexData, GeomVertexFormat, Geom, GeomVertexWriter, GeomTriangles, Texture, Material, \
     RenderState, TextureAttrib, MaterialAttrib, GeomNode, NodePath, CollisionNode, CollisionBox, LPoint3, TextureStage, \
     BitMask32
+
+from tool import Tool
 
 
 class Block:
@@ -10,7 +14,8 @@ class Block:
     block_geoms = {}
     geom_states = {}
     destroy = []
-    def __init__(self, base, geom_type, texture, x, y, z):
+    destroyed_stage = -1
+    def __init__(self, base, geom_type, texture, hardness, best_tools, minimum_tool, x, y, z):
         # Create geometry if needed
         if geom_type not in Block.block_geoms:
             # Creating vertex data.
@@ -170,7 +175,9 @@ class Block:
                 Block.destroy[i].read(f"textures/block/destroy_stage_{i}.png")
                 Block.destroy[i].setMagfilter(Texture.FTNearest)
                 Block.destroy[i].setMinfilter(Texture.FTNearest)
-                self.destroy_ts = TextureStage("destroy")
+        self.destroy_ts = TextureStage("destroy")
+        self.destroy_ts.setCombineRgb(TextureStage.CMModulate,
+            TextureStage.CSPrevious, TextureStage.COSrcColor, TextureStage.CSTexture, TextureStage.COOneMinusSrcColor)
 
         self.node_path.reparentTo(base.render)
         self.node_path.setScale(0.5, 0.5, 0.5)
@@ -182,8 +189,76 @@ class Block:
         self.x, self.y, self.z = x, y, z
         self.node_path.setPos(self.x, self.z, self.y)
 
-    def show_destroy_stage(self, stage):
-        if 0 <= stage <= 9:
-            self.node_path.setTexture(self.destroy_ts, Block.destroy[stage])
+        self.__base = base
+        self.__texture = texture
+        self.__hardness = hardness
+        self.__best_tools = best_tools
+        self.__minimum_tool = minimum_tool
+
+    def __str__(self):
+        return f"{self.__texture} @ {self.x},{self.y},{self.z}"
+
+    def destroy_ticks(self, tool_type = Tool.NO_TOOL, on_ground = True, in_water = False, tool_material = Tool.NO_TOOL, efficiency_level = 0,
+                      haste_level = 0, mining_fatigue_level = 0, has_aqua_affinity = False):
+        speed_multiplier = 1
+        can_harvest = tool_material < self.__minimum_tool
+
+        match tool_material:
+            case Tool.MATERIAL_WOOD:
+                tool_multiplier = 2
+            case Tool.MATERIAL_STONE:
+                tool_multiplier = 2
+            case Tool.MATERIAL_IRON:
+                tool_multiplier = 2
+            case Tool.MATERIAL_DIAMOND:
+                tool_multiplier = 2
+            case Tool.MATERIAL_NETHERITE:
+                tool_multiplier = 2
+            case Tool.MATERIAL_GOLD:
+                tool_multiplier = 2
+            case _:
+                tool_multiplier = 1
+        if tool_type in self.__best_tools:
+            speed_multiplier = tool_multiplier
+            if can_harvest:
+                speed_multiplier = 1
+            elif efficiency_level > 0:
+                speed_multiplier += efficiency_level ** 2 + 1
+
+        if haste_level > 0:
+            speed_multiplier *= 0.2 * haste_level + 1
+
+        if mining_fatigue_level > 0:
+            speed_multiplier *= 0.3 ** min(mining_fatigue_level, 4)
+
+        if in_water and not has_aqua_affinity:
+            speed_multiplier /= 5
+
+        if not on_ground:
+            speed_multiplier /= 5
+
+        damage = speed_multiplier / self.__hardness
+
+        if can_harvest:
+            damage /= 30
         else:
-            self.node_path.clearTexture(self.destroy_ts)
+            damage /= 100
+
+        # Instant breaking
+        if (damage > 1):
+            return 0
+
+        ticks = math.ceil(1 / damage)
+        return ticks
+
+    def destroy_stage(self, amount):
+        stage = int(amount * 10.0)
+        if self.destroyed_stage != stage:
+            self.destroyed_stage = stage
+            if 0 <= stage <= 9:
+                self.node_path.setTexture(self.destroy_ts, Block.destroy[stage])
+            elif stage > 9:
+                self.__base.destroyed(self)
+                self.node_path.detachNode()
+            else:
+                self.node_path.clearTexture(self.destroy_ts)
