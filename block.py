@@ -2,7 +2,7 @@ import math
 
 from panda3d.core import GeomVertexData, GeomVertexFormat, Geom, GeomVertexWriter, GeomTriangles, Texture, Material, \
     RenderState, TextureAttrib, MaterialAttrib, GeomNode, NodePath, CollisionNode, CollisionBox, LPoint3, TextureStage, \
-    BitMask32
+    BitMask32, LColor, PandaNode, LRGBColor, LVecBase4, LVecBase4f, Shader
 
 from tool import Tool
 
@@ -13,7 +13,16 @@ class Block:
     TOP_BOTTOM = 3
     ALL_DIFFERENT = 4
 
-    COLLIDE_MASK = BitMask32(0x10)
+    WEST = 1
+    EAST = 2
+    NORTH = 3
+    SOUTH = 4
+    UP = 5
+    DOWN = 6
+
+    SHADOW_MASK = BitMask32(0x010)
+    COLLIDE_MASK = BitMask32(0x100)
+    __shader = None
     textures = {}
     materials = {}
     block_geoms = {}
@@ -23,58 +32,60 @@ class Block:
 
     @staticmethod
     def make(base, block_data, block_model, x, y, z):
+        parts = []
         textures = []
         tints = []
+        overlays = []
         texture_data = block_model["textures"]
         match block_model["parent"]:
             case "minecraft:block/cube_all":
                 geom_type = Block.SINGLE_CUBE
-                textures.append(texture_data["all"])
-                if "elements" in block_model:
-                    tints.append(block_model["elements"][0]["faces"]["top"].get("tintindex", None))
+                parts.append(("all", "top"))
             case "minecraft:block/cube_column":
                 geom_type = Block.ONLY_SIDES
-                textures.append(texture_data["side"])
-                textures.append(texture_data["end"])
-                if "elements" in block_model:
-                    tints.append(block_model["elements"][0]["faces"]["north"].get("tintindex", None))
-                    tints.append(block_model["elements"][0]["faces"]["top"].get("tintindex", None))
+                parts.append(("side", "north"))
+                parts.append(("end", "up"))
             case "minecraft:block/cube_column_horizontal":
                 geom_type = Block.ONLY_SIDES
-                textures.append(texture_data["side"])
-                textures.append(texture_data["end"])
-                if "elements" in block_model:
-                    tints.append(block_model["elements"][0]["faces"]["north"].get("tintindex", None))
-                    tints.append(block_model["elements"][0]["faces"]["up"].get("tintindex", None))
+                parts.append(("side", "north"))
+                parts.append(("end", "up"))
             case _:
                 if texture_data["top"] and texture_data["bottom"] and texture_data["side"]:
                     geom_type = Block.TOP_BOTTOM
-                    textures.append(texture_data["side"])
-                    textures.append(texture_data["top"])
-                    textures.append(texture_data["bottom"])
-                    if "elements" in block_model:
-                        tints.append(block_model["elements"][0]["faces"]["north"].get("tintindex", None))
-                        tints.append(block_model["elements"][0]["faces"]["up"].get("tintindex", None))
-                        tints.append(block_model["elements"][0]["faces"]["down"].get("tintindex", None))
+                    parts.append(("side", "north"))
+                    parts.append(("top", "up"))
+                    parts.append(("bottom", "down"))
                 else:
                     geom_type = Block.ALL_DIFFERENT
-                    textures.append(texture_data["west"])
-                    textures.append(texture_data["east"])
-                    textures.append(texture_data["south"])
-                    textures.append(texture_data["north"])
-                    textures.append(texture_data["top"])
-                    textures.append(texture_data["bottom"])
-                    if "elements" in block_model:
-                        tints.append(block_model["elements"][0]["faces"]["west"].get("tintindex", None))
-                        tints.append(block_model["elements"][0]["faces"]["east"].get("tintindex", None))
-                        tints.append(block_model["elements"][0]["faces"]["south"].get("tintindex", None))
-                        tints.append(block_model["elements"][0]["faces"]["north"].get("tintindex", None))
-                        tints.append(block_model["elements"][0]["faces"]["up"].get("tintindex", None))
-                        tints.append(block_model["elements"][0]["faces"]["down"].get("tintindex", None))
-        return Block(base, geom_type, block_data["name"], textures, tints, block_data["hardness"], [Tool.TYPE_SHOVEL], Tool.NO_TOOL, x, y, z)
+                    parts.append(("west", "west"))
+                    parts.append(("east", "east"))
+                    parts.append(("south", "south"))
+                    parts.append(("north", "north"))
+                    parts.append(("top", "up"))
+                    parts.append(("bottom", "down"))
 
-    def __init__(self, base, geom_type, name, textures, tints, hardness, best_tools, minimum_tool, x, y, z):
+        for (texture_side, face_side) in parts:
+            if "elements" in block_model:
+                textures.append(texture_data[block_model["elements"][0]["faces"][face_side].get("texture").replace("#", "")])
+                tints.append(block_model["elements"][0]["faces"][face_side].get("tintindex", None))
+                if len(block_model["elements"]) > 1 and face_side in block_model["elements"][1]["faces"]:
+                    overlays.append((texture_data[block_model["elements"][1]["faces"][face_side].get("texture").replace("#", "")], block_model["elements"][1]["faces"][face_side].get("tintindex", None)))
+                else:
+                    overlays.append((None, None))
+            else:
+                textures.append(texture_data[texture_side])
+                overlays.append((None, None))
+
+        return Block(base, geom_type, block_data["name"], parts, textures, overlays, tints, block_data["hardness"], [Tool.TYPE_SHOVEL], Tool.NO_TOOL, x, y, z)
+
+    def __init__(self, base, geom_type, name, parts, textures, overlays, tints, hardness, best_tools, minimum_tool, x, y, z):
         self.__name = name
+        # Load shader if needed
+        if Block.__shader is None:
+            Block.__shader = Shader.load(Shader.SL_GLSL,
+                                 vertex="lighting.vert",
+                                 fragment="lighting.frag")
+
         # Create geometry if needed
         if geom_type not in Block.block_geoms:
             # Creating vertex data.
@@ -87,8 +98,14 @@ class Block:
 
             vertex.addData3(0, 0, 0)
             vertex.addData3(0, 0, 0)
+            vertex.addData3(0, 0, 0)
+            vertex.addData3(0, 0, 0)
             texcoord.addData2(0, 0)
             texcoord.addData2(0, 0)
+            texcoord.addData2(0, 0)
+            texcoord.addData2(0, 0)
+            normal.addData3(0, 0, 0)
+            normal.addData3(0, 0, 0)
             normal.addData3(0, 0, 0)
             normal.addData3(0, 0, 0)
 
@@ -180,143 +197,54 @@ class Block:
             match geom_type:
                 case Block.SINGLE_CUBE:
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    # Creating primitive
-                    single_cube = GeomTriangles(Geom.UHStatic)
-                    # left
-                    single_cube.addVertices(2, 3, 4)
-                    single_cube.addVertices(2, 4, 5)
-                    # right
-                    single_cube.addVertices(6, 7, 8)
-                    single_cube.addVertices(6, 8, 9)
-                    # front
-                    single_cube.addVertices(10, 11, 12)
-                    single_cube.addVertices(10, 12, 13)
-                    # back
-                    single_cube.addVertices(14, 15, 16)
-                    single_cube.addVertices(14, 16, 17)
-                    # top
-                    single_cube.addVertices(18, 19, 20)
-                    single_cube.addVertices(18, 20, 21)
-                    # bottom
-                    single_cube.addVertices(22, 23, 24)
-                    single_cube.addVertices(22, 24, 25)
-                    single_cube.closePrimitive()
-
+                    single_cube = Block.make_primitive([Block.WEST, Block.EAST, Block.NORTH, Block.SOUTH, Block.UP, Block.DOWN])
                     Block.block_geoms[geom_type][0].addPrimitive(single_cube)
 
                 case Block.ONLY_SIDES:
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    # Creating primitive
-                    sides = GeomTriangles(Geom.UHStatic)
-                    # left
-                    sides.addVertices(2, 3, 4)
-                    sides.addVertices(2, 4, 5)
-                    # right
-                    sides.addVertices(6, 7, 8)
-                    sides.addVertices(6, 8, 9)
-                    # front
-                    sides.addVertices(10, 11, 12)
-                    sides.addVertices(10, 12, 13)
-                    # back
-                    sides.addVertices(14, 15, 16)
-                    sides.addVertices(14, 16, 17)
-                    sides.closePrimitive()
+                    sides = Block.make_primitive([Block.WEST, Block.EAST, Block.NORTH, Block.SOUTH])
                     Block.block_geoms[geom_type][0].addPrimitive(sides)
 
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    top_bottom = GeomTriangles(Geom.UHStatic)
-                    # top
-                    top_bottom.addVertices(18, 19, 20)
-                    top_bottom.addVertices(18, 20, 21)
-                    # bottom
-                    top_bottom.addVertices(22, 23, 24)
-                    top_bottom.addVertices(22, 24, 25)
-                    top_bottom.closePrimitive()
+                    top_bottom = Block.make_primitive([Block.UP, Block.DOWN])
                     Block.block_geoms[geom_type][1].addPrimitive(top_bottom)
 
                 case Block.TOP_BOTTOM:
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    # Creating primitive
-                    sides = GeomTriangles(Geom.UHStatic)
-                    # left
-                    sides.addVertices(2, 3, 4)
-                    sides.addVertices(2, 4, 5)
-                    # right
-                    sides.addVertices(6, 7, 8)
-                    sides.addVertices(6, 8, 9)
-                    # front
-                    sides.addVertices(10, 11, 12)
-                    sides.addVertices(10, 12, 13)
-                    # back
-                    sides.addVertices(14, 15, 16)
-                    sides.addVertices(14, 16, 17)
-                    sides.closePrimitive()
+                    sides = Block.make_primitive([Block.WEST, Block.EAST, Block.NORTH, Block.SOUTH])
                     Block.block_geoms[geom_type][0].addPrimitive(sides)
 
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    top = GeomTriangles(Geom.UHStatic)
-                    # top
-                    top.addVertices(18, 19, 20)
-                    top.addVertices(18, 20, 21)
-                    top.closePrimitive()
+                    top = Block.make_primitive([Block.UP])
                     Block.block_geoms[geom_type][1].addPrimitive(top)
 
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    bottom = GeomTriangles(Geom.UHStatic)
-                    # bottom
-                    bottom.addVertices(22, 23, 24)
-                    bottom.addVertices(22, 24, 25)
-                    bottom.closePrimitive()
+                    bottom = Block.make_primitive([Block.DOWN])
                     Block.block_geoms[geom_type][2].addPrimitive(bottom)
 
                 case Block.ALL_DIFFERENT:
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    # Creating primitive
-                    left = GeomTriangles(Geom.UHStatic)
-                    # left
-                    left.addVertices(2, 3, 4)
-                    left.addVertices(2, 4, 5)
-                    left.closePrimitive()
+                    left = Block.make_primitive([Block.WEST])
                     Block.block_geoms[geom_type][0].addPrimitive(left)
 
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    right = GeomTriangles(Geom.UHStatic)
-                    # right
-                    right.addVertices(6, 7, 8)
-                    right.addVertices(6, 8, 9)
-                    right.closePrimitive()
+                    right = Block.make_primitive([Block.EAST])
                     Block.block_geoms[geom_type][1].addPrimitive(right)
 
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    front = GeomTriangles(Geom.UHStatic)
-                    # front
-                    front.addVertices(10, 11, 12)
-                    front.addVertices(10, 12, 13)
-                    front.closePrimitive()
+                    front = Block.make_primitive([Block.SOUTH])
                     Block.block_geoms[geom_type][2].addPrimitive(front)
 
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    back = GeomTriangles(Geom.UHStatic)
-                    # back
-                    back.addVertices(14, 15, 16)
-                    back.addVertices(14, 16, 17)
-                    back.closePrimitive()
+                    back = Block.make_primitive([Block.NORTH])
                     Block.block_geoms[geom_type][3].addPrimitive(back)
 
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    top = GeomTriangles(Geom.UHStatic)
-                    # top
-                    top.addVertices(18, 19, 20)
-                    top.addVertices(18, 20, 21)
-                    top.closePrimitive()
+                    top = Block.make_primitive([Block.UP])
                     Block.block_geoms[geom_type][4].addPrimitive(top)
 
                     Block.block_geoms[geom_type].append(Geom(block_vdata))
-                    bottom = GeomTriangles(Geom.UHStatic)
-                    # bottom
-                    bottom.addVertices(22, 23, 24)
-                    bottom.addVertices(22, 24, 25)
-                    bottom.closePrimitive()
+                    bottom = Block.make_primitive([Block.DOWN])
                     Block.block_geoms[geom_type][5].addPrimitive(bottom)
 
         # Load texture if not loaded yet
@@ -325,17 +253,35 @@ class Block:
             for texture in textures:
                 Block.textures[self.__name].append(self.get_texture(texture))
 
-        # Create geometry node
-        geom_node = GeomNode(f"{self.__name}@{x},{y},{z}")
-        # Create new geometry state if needed
-        for t in range(len(textures)):
-            texture = textures[t]
-            tint = tints[t] if len(tints) > t else ""
+        # Create root node
+        block_node = PandaNode(f"{self.__name}@{x},{y},{z}")
+        self.node_path = NodePath(block_node)
+        # Create geometry nodes
+        for p in range(len(parts)):
+            geom_node = GeomNode(f"{parts[p]}")
+            texture = textures[p]
+            tint = tints[p] if len(tints) > p else ""
             geom_index = f"{texture}{tint}"
             if geom_index not in Block.geom_states:
-                Block.geom_states[geom_index] = RenderState.make(Block.textures[self.__name][t], self.get_material(tint))
-            geom_node.addGeom(Block.block_geoms[geom_type][t], Block.geom_states[geom_index])
-        self.node_path = NodePath(geom_node)
+                Block.geom_states[geom_index] = RenderState.make(Block.textures[self.__name][p], MaterialAttrib.make(Material("default")))
+            geom_node.addGeom(Block.block_geoms[geom_type][p], Block.geom_states[geom_index])
+            geom_np = NodePath(geom_node)
+            geom_np.reparentTo(self.node_path)
+
+            geom_np.setShader(Block.__shader)
+
+            tint_color = Block.get_tint_color(tint)
+            if tint_color:
+                geom_np.setColorScale(tint_color)
+            (overlay_texture, overlay_tint) = overlays[p]
+            geom_np.setShaderInput("overlay", 0 if overlay_texture is None else 1)
+            geom_np.setShaderInput("overlayColor", (1, 1, 1, 1) if overlay_tint is None else Block.get_tint_color(overlay_tint))
+            if overlay_texture is not None:
+                overlay_tex = Block.get_texture(overlay_texture, False)
+                overlay_ts = TextureStage("overlay")
+                overlay_ts.setSort(1)
+                overlay_ts.setMode(TextureStage.MDecal)
+                geom_np.setTexture(overlay_ts, overlay_tex)
 
         # Load destroy stage textures if needed
         if not Block.destroy:
@@ -346,14 +292,16 @@ class Block:
                 Block.destroy[i].setMagfilter(Texture.FTNearest)
                 Block.destroy[i].setMinfilter(Texture.FTNearest)
         self.destroy_ts = TextureStage("destroy")
+        self.destroy_ts.setSort(100)
         self.destroy_ts.setCombineRgb(TextureStage.CMModulate,
             TextureStage.CSPrevious, TextureStage.COSrcColor, TextureStage.CSTexture, TextureStage.COOneMinusSrcColor)
 
         self.node_path.reparentTo(base.render)
         self.node_path.setScale(0.5, 0.5, 0.5)
+        self.node_path.showThrough(Block.SHADOW_MASK)
 
         self.collision_node = self.node_path.attachNewNode(CollisionNode("collider"))
-        self.collision_node.node().addSolid(CollisionBox(LPoint3(0, 0, 0), 1, 1, 1))
+        self.collision_node.node().addSolid(CollisionBox(LPoint3(0, 0, 0), .999, .999, .999))
         self.collision_node.setCollideMask(Block.COLLIDE_MASK)
 
         self.x, self.y, self.z = x, y, z
@@ -367,30 +315,48 @@ class Block:
     def __str__(self):
         return f"{self.__name} @ {self.x},{self.y},{self.z}"
 
-    def get_material(self, tint):
-        try:
-            tint_index = int(tint)
-        except (TypeError, ValueError):
-            tint_index = None
-        if tint_index not in Block.materials:
-            mat = Material("default")
-            mat.setShininess(5.0)
-            match tint_index:
-                case 0:
-                    mat.setBaseColor((0, 1, 0, 1))
-                case _:
-                    mat.setBaseColor((1, 1, 1, 1))
-            Block.materials[tint_index] = MaterialAttrib.make(mat)
-        return Block.materials[tint_index]
+    @staticmethod
+    def make_primitive(sides):
+        primitive = GeomTriangles(Geom.UHStatic)
+        for side in sides:
+            offset = 4 * side
+            primitive.addVertices(offset + 0, offset + 1, offset + 2)
+            primitive.addVertices(offset + 0, offset + 2, offset + 3)
+        primitive.closePrimitive()
+        return primitive
 
     @staticmethod
-    def get_texture(texture):
+    def get_texture(texture, attrib = True):
         tex = Texture("Texture")
         tex.setup2dTexture()
         tex.read(f"textures/{texture}.png".replace("minecraft:",""))
         tex.setMagfilter(Texture.FTNearest)
         tex.setMinfilter(Texture.FTNearest)
-        return TextureAttrib.make(tex)
+        if attrib:
+            return TextureAttrib.make(tex)
+        else:
+            return tex
+
+    @staticmethod
+    def get_tint_color(tint):
+        try:
+            tint_index = int(tint)
+        except (TypeError, ValueError):
+            tint_index = None
+        match tint_index:
+            case 0:
+                return Block.color_from_hex("#79C05A")
+        return LColor(1, 1, 1, 1)
+
+    @staticmethod
+    def color_from_hex(hex, factor = 1):
+        hex = hex.lstrip('#')
+        match len(hex):
+            case 8:
+                return LColor(tuple(int(hex[i:i + 2], 16) / 255.0 / factor for i in (0, 2, 4)) + (int(hex[6:8], 16) / 255.0,))
+            case 6:
+                return LColor(tuple(int(hex[i:i + 2], 16) / 255.0 / factor for i in (0, 2, 4)) + (1,))
+        return LColor(1, 0, 1, 1)
 
     def destroy_ticks(self, tool_type = Tool.NO_TOOL, on_ground = True, in_water = False, tool_material = Tool.NO_TOOL, efficiency_level = 0,
                       haste_level = 0, mining_fatigue_level = 0, has_aqua_affinity = False):

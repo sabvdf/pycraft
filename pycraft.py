@@ -1,16 +1,18 @@
-import json
-import random
+import json, random, os
 
+import simplepbr
 from direct.directtools.DirectGeometry import LineNodePath
+from direct.filter.CommonFilters import CommonFilters
 from direct.gui.OnscreenImage import OnscreenImage
 from direct.showbase.ShowBase import ShowBase
+from panda3d._rplight import PSSMCameraRig
 from panda3d.core import DirectionalLight, AmbientLight, WindowProperties, \
     Vec4, CollisionNode, CollisionSegment, CollisionTraverser, CollisionHandlerQueue, \
     SamplerState, TransparencyAttrib, VBase3, RenderState, \
-    CullFaceAttrib, ColorWriteAttrib, ClockObject, loadPrcFileData, TP_high
+    CullFaceAttrib, ColorWriteAttrib, ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, GraphicsOutput, \
+    GraphicsPipe, FrameBufferProperties
 
 from block import Block
-from tool import Tool
 
 
 class PyCraft(ShowBase):
@@ -18,6 +20,7 @@ class PyCraft(ShowBase):
     destroying = None
     destroy_ticks = 0
     destroyed_ticks = 0
+    destroy_delay = 0
     ticks = 0
 
     def __init__(self):
@@ -28,34 +31,33 @@ class PyCraft(ShowBase):
         wp.setTitle("PyCraft v0.1")
         wp.setCursorHidden(True)
         wp.setMouseMode(WindowProperties.M_confined)
-        wp.setSize(1024, 600)
         self.win.requestProperties(wp)
         self.disableMouse()
 
         self.globalClock = ClockObject.getGlobalClock()
 
-        loadPrcFileData("", "lock-to-one-cpu 0")
-        loadPrcFileData("", "support-threads 1")
-
         # Lighting
         self.sun = DirectionalLight("sun")
-        self.sun.getLens().setFilmSize(100)
+        self.sun.getLens().setFilmSize(100, 100)
         self.sun.getLens().setNearFar(0.1, 20)
-        # self.sun.set_shadow_caster(True, 4096, 4096)
-        self.sun.setColorTemperature(8000)
+        self.sun.setShadowCaster(True, 4096, 4096)
+        self.sun.setColorTemperature(7000)
         self.sun.color = self.sun.color * 4
         self.sun.setInitialState(RenderState.make(CullFaceAttrib.makeReverse(), ColorWriteAttrib.make(ColorWriteAttrib.COff)))
+        self.sun.setCameraMask(Block.SHADOW_MASK)
 
         self.np_sun = self.render.attachNewNode(self.sun)
-        self.np_sun.setPosHpr(2,2,10,15,-65,0)
+
+        self.np_sun.setPosHpr(0,0,10,35,-65,0)
         self.render.setLight(self.np_sun)
 
-        skycol = VBase3(0x79 / 255.0, 0xA6 / 255.0, 0xFF / 255.0)
+
+        skycol = Block.color_from_hex("#79A6FF")
         self.setBackgroundColor(skycol)
 
         self.ambient = AmbientLight("ambient")
-        self.ambient.setColorTemperature(8000)
-        self.ambient.color = self.ambient.color * 0.4
+        self.ambient.setColorTemperature(7000)
+        self.ambient.color = self.ambient.color * 0.2
         np_ambient = self.render.attachNewNode(self.ambient)
         self.render.setLight(np_ambient)
 
@@ -72,8 +74,7 @@ class PyCraft(ShowBase):
         self.cTrav.addCollider(picker_np, self.targetHandler)
 
         # Targeted block highlight
-        self.highlight = LineNodePath(self.render, colorVec=Vec4(0, 0, 0, 1))
-        self.highlight.setThickness(5)
+        self.highlight = LineNodePath(self.render, colorVec=Vec4(0, 0, 0, 1), thickness=5)
         self.highlight.drawLines([((-0.502, -0.502, -0.502), (-0.502, 0.502, -0.502))])
         self.highlight.drawLines([((-0.502, 0.502, -0.502), (0.502, 0.502, -0.502))])
         self.highlight.drawLines([((0.502, 0.502, -0.502), (0.502, -0.502, -0.502))])
@@ -91,7 +92,9 @@ class PyCraft(ShowBase):
         self.highlight.create()
         self.highlight.reparentTo(self.render)
         self.highlight.setPos(0,0,0)
-        self.highlight.setShaderOff()
+        self.highlight.setRenderModeThickness(5)
+        self.highlight.setCollideMask(0)
+        self.highlight.hide(Block.SHADOW_MASK)
 
         # Controls
         self.mouse_sensitivity_x = 90
@@ -144,7 +147,6 @@ class PyCraft(ShowBase):
             for z in range(rows):
                 for x in range(cols):
                     block_data = blocks_data[random.choice([1,8,9,34,46,144,164,255])]
-                    textures = []
                     block_model = json.load(open(f"models/block/{block_data["name"]}.json"))
                     block = Block.make(self, block_data, block_model, x-13, y+random.choice([0,1]), z-13)
                     self.add_block(block)
@@ -218,12 +220,15 @@ class PyCraft(ShowBase):
             self.target(None)
 
         if self.__break_key:
-            if self.target_block and not self.destroying:
+            if self.destroy_delay > 0:
+                self.destroy_delay -= 1
+            elif self.target_block and not self.destroying:
                 self.destroy_block(self.target_block)
         elif self.destroying:
             self.destroy_block(None)
 
         return task.cont
+
 
     def destroy_block(self, target):
         if self.destroying == target:
@@ -253,6 +258,9 @@ class PyCraft(ShowBase):
         self.target_block = target
 
     def destroyed(self, block):
+        if self.destroy_ticks > 1:
+            self.destroy_block(None)
+            self.destroy_delay = 6
         print(f"{block} destroyed!")
 
     def add_block(self, block):
@@ -274,4 +282,5 @@ class PyCraft(ShowBase):
             self.destroyed_ticks += 1
             self.target_block.destroy_stage(self.destroyed_ticks / self.destroy_ticks)
 
+loadPrcFile(os.path.dirname(os.path.abspath(__file__)) + "/Config.prc")
 PyCraft().run()
