@@ -10,6 +10,7 @@ from panda3d.core import DirectionalLight, AmbientLight, WindowProperties, \
     ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, Shader, AuxBitplaneAttrib
 
 from block import Block
+from hud import Hud
 
 
 class PyCraft(ShowBase):
@@ -142,6 +143,15 @@ class PyCraft(ShowBase):
         self.accept("r-up", self.break_key, [False])
         self.accept("e", self.place_key, [True])
         self.accept("e-up", self.place_key, [False])
+        self.accept("1", lambda s: self.hotbar(1) if s else None, [True])
+        self.accept("2", lambda s: self.hotbar(2) if s else None, [True])
+        self.accept("3", lambda s: self.hotbar(3) if s else None, [True])
+        self.accept("4", lambda s: self.hotbar(4) if s else None, [True])
+        self.accept("5", lambda s: self.hotbar(5) if s else None, [True])
+        self.accept("6", lambda s: self.hotbar(6) if s else None, [True])
+        self.accept("7", lambda s: self.hotbar(7) if s else None, [True])
+        self.accept("8", lambda s: self.hotbar(8) if s else None, [True])
+        self.accept("9", lambda s: self.hotbar(9) if s else None, [True])
 
         self.body = self.render.attachNewNode("body")
         self.cam.reparentTo(self.body)
@@ -154,6 +164,8 @@ class PyCraft(ShowBase):
         self.crosshair.setTransparency(TransparencyAttrib.MPremultipliedAlpha)
         self.crosshair.getTexture().setMagfilter(SamplerState.FT_nearest)
         self.crosshair.getTexture().setMinfilter(SamplerState.FT_nearest)
+
+        self.hud = Hud(self)
 
         blocks_data = json.load(open("blocks.json"))
 
@@ -188,6 +200,9 @@ class PyCraft(ShowBase):
         self.__break_key = state == True
     def place_key(self, state):
         self.__place_key = state == True
+
+    def hotbar(self, slot):
+        self.hud.select(slot)
 
     def controls(self, task):
         delta = self.globalClock.getDt()
