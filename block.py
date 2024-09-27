@@ -1,8 +1,8 @@
 import math
 
-from panda3d.core import GeomVertexData, GeomVertexFormat, Geom, GeomVertexWriter, GeomTriangles, Texture, Material, \
-    RenderState, TextureAttrib, MaterialAttrib, GeomNode, NodePath, CollisionNode, CollisionBox, LPoint3, TextureStage, \
-    BitMask32, LColor, PandaNode, LRGBColor, LVecBase4, LVecBase4f, Shader
+from panda3d.core import GeomVertexData, GeomVertexFormat, Geom, GeomVertexWriter, GeomTriangles, \
+    Texture, Material, RenderState, TextureAttrib, MaterialAttrib, GeomNode, NodePath, \
+    CollisionNode, CollisionBox, LPoint3, TextureStage, BitMask32, LColor, PandaNode, Shader
 
 from tool import Tool
 
@@ -96,6 +96,7 @@ class Block:
             normal = GeomVertexWriter(block_vdata, "normal")
             texcoord = GeomVertexWriter(block_vdata, "texcoord")
 
+            # padding data (why is this needed?)
             vertex.addData3(0, 0, 0)
             vertex.addData3(0, 0, 0)
             vertex.addData3(0, 0, 0)
@@ -257,6 +258,7 @@ class Block:
         block_node = PandaNode(f"{self.__name}@{x},{y},{z}")
         self.node_path = NodePath(block_node)
         # Create geometry nodes
+        self.geom_paths = []
         for p in range(len(parts)):
             geom_node = GeomNode(f"{parts[p]}")
             texture = textures[p]
@@ -282,6 +284,8 @@ class Block:
                 overlay_ts.setSort(1)
                 overlay_ts.setMode(TextureStage.MDecal)
                 geom_np.setTexture(overlay_ts, overlay_tex)
+            geom_np.setShaderInput("destroy", 0)
+            self.geom_paths.append(geom_np)
 
         # Load destroy stage textures if needed
         if not Block.destroy:
@@ -292,7 +296,7 @@ class Block:
                 Block.destroy[i].setMagfilter(Texture.FTNearest)
                 Block.destroy[i].setMinfilter(Texture.FTNearest)
         self.destroy_ts = TextureStage("destroy")
-        self.destroy_ts.setSort(100)
+        self.destroy_ts.setSort(2)
         self.destroy_ts.setCombineRgb(TextureStage.CMModulate,
             TextureStage.CSPrevious, TextureStage.COSrcColor, TextureStage.CSTexture, TextureStage.COOneMinusSrcColor)
 
@@ -361,26 +365,26 @@ class Block:
     def destroy_ticks(self, tool_type = Tool.NO_TOOL, on_ground = True, in_water = False, tool_material = Tool.NO_TOOL, efficiency_level = 0,
                       haste_level = 0, mining_fatigue_level = 0, has_aqua_affinity = False):
         speed_multiplier = 1
-        can_harvest = tool_material < self.__minimum_tool
+        can_harvest = tool_material <= self.__minimum_tool
 
         match tool_material:
             case Tool.MATERIAL_WOOD:
                 tool_multiplier = 2
             case Tool.MATERIAL_STONE:
-                tool_multiplier = 2
+                tool_multiplier = 4
             case Tool.MATERIAL_IRON:
-                tool_multiplier = 2
+                tool_multiplier = 6
             case Tool.MATERIAL_DIAMOND:
-                tool_multiplier = 2
+                tool_multiplier = 8
             case Tool.MATERIAL_NETHERITE:
-                tool_multiplier = 2
+                tool_multiplier = 9
             case Tool.MATERIAL_GOLD:
-                tool_multiplier = 2
+                tool_multiplier = 12
             case _:
                 tool_multiplier = 1
         if tool_type in self.__best_tools:
             speed_multiplier = tool_multiplier
-            if can_harvest:
+            if not can_harvest:
                 speed_multiplier = 1
             elif efficiency_level > 0:
                 speed_multiplier += efficiency_level ** 2 + 1
@@ -409,6 +413,8 @@ class Block:
             return 0
 
         ticks = math.ceil(1 / damage)
+
+        print(f"{self}: {ticks} to destroy")
         return ticks
 
     def destroy_stage(self, amount):
@@ -417,8 +423,12 @@ class Block:
             self.destroyed_stage = stage
             if 0 <= stage <= 9:
                 self.node_path.setTexture(self.destroy_ts, Block.destroy[stage])
+                for path in self.geom_paths:
+                    path.setShaderInput("destroy", 1)
             elif stage > 9:
                 self.__base.destroyed(self)
                 self.node_path.detachNode()
             else:
                 self.node_path.clearTexture(self.destroy_ts)
+                for path in self.geom_paths:
+                    path.setShaderInput("destroy", 0)

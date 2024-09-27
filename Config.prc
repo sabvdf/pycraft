@@ -5,9 +5,9 @@ win-title PyCraft v0.1
 fullscreen #f
 framebuffer-hardware #t
 framebuffer-software #f
-depth-bits 1
-color-bits 1 1 1
-alpha-bits 1
+depth-bits 8
+color-bits 8 8 8
+alpha-bits 8
 stencil-bits 0
 multisamples 0
 notify-level warning

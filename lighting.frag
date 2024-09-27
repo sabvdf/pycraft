@@ -4,8 +4,10 @@
 
 uniform sampler2D p3d_Texture0;
 uniform sampler2D p3d_Texture1;
-uniform float overlay;
+uniform sampler2D p3d_Texture2;
+uniform int overlay;
 uniform vec4 overlayColor;
+uniform int destroy;
 uniform vec4 p3d_ColorScale;
 
 in vec2 texcoord;
@@ -28,12 +30,19 @@ in vec4 shad[1];
 out vec4 p3d_FragColor;
 
 const vec3 SRGB_POWER = vec3(2.2);
+const vec3 one3 = vec3(1);
 
 void main() {
   // Sample textures
   vec4 color0 = texture(p3d_Texture0, texcoord);
   vec4 color1 = texture(p3d_Texture1, texcoord);
   vec4 tex = vec4(mix(color0.rgb * p3d_ColorScale.rgb, color1.rgb * overlayColor.rgb, overlay * color1.a), 1);
+  vec4 overlay_tex;
+  if (destroy == 1)
+  {
+      overlay_tex = texture(overlay == 0 ? p3d_Texture1 : p3d_Texture2, texcoord);
+      tex.rgb *= one3 - overlay_tex.rgb;
+  }
 
   p3d_FragColor = p3d_LightModel.ambient * p3d_Material.ambient * tex;
 
@@ -75,29 +84,29 @@ void main() {
     // Obtain final intensity as reflectance (BRDF) scaled by the energy of the light (cosine law)
     vec3 color = NdotL * p3d_LightSource[i].color.rgb * (diffuseContrib + specContrib);
 
-        // Shadow
-        vec3 shadow = vec3(0.0, 0.0, 0.0);
-        float sharpness = 0.01;
-        // Quick and dirty gaussian blur
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4( -0.0326212, -0.0405805, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0840144, -0.0073580, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0695914, 0.0457137, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0203345, 0.0620716, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0962340, -0.0194983, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0473434, -0.0480026, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0519456, 0.0767022, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0185461, -0.0893124, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0507431, 0.0064425, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0896420, 0.0412458, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0321940, -0.0932615, 0, 0) * sharpness);
-        shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0791559, -0.0597705, 0, 0) * sharpness);
-        shadow /= 13.0;
-        color *= shadow;
+    // Shadow
+    vec3 shadow = vec3(0.0, 0.0, 0.0);
+    float sharpness = 0.01;
+    // Quick and dirty gaussian blur
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4( -0.0326212, -0.0405805, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0840144, -0.0073580, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0695914, 0.0457137, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0203345, 0.0620716, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0962340, -0.0194983, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0473434, -0.0480026, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0519456, 0.0767022, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0185461, -0.0893124, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0507431, 0.0064425, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(0.0896420, 0.0412458, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0321940, -0.0932615, 0, 0) * sharpness);
+    shadow += textureProj(p3d_LightSource[i].shadowMap, shad[i] + vec4(-0.0791559, -0.0597705, 0, 0) * sharpness);
+    shadow /= 13.0;
+    color *= shadow;
 
     p3d_FragColor.rgb += color;
   }
 
   p3d_FragColor.a = 1;
 
-    p3d_FragColor = vec4(pow(p3d_FragColor.rgb, SRGB_POWER), 1.0);
+  p3d_FragColor = vec4(pow(p3d_FragColor.rgb, SRGB_POWER), 1.0);
 }

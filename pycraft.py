@@ -1,16 +1,13 @@
 import json, random, os
 
-import simplepbr
 from direct.directtools.DirectGeometry import LineNodePath
-from direct.filter.CommonFilters import CommonFilters
+from direct.filter.FilterManager import FilterManager
 from direct.gui.OnscreenImage import OnscreenImage
 from direct.showbase.ShowBase import ShowBase
-from panda3d._rplight import PSSMCameraRig
 from panda3d.core import DirectionalLight, AmbientLight, WindowProperties, \
     Vec4, CollisionNode, CollisionSegment, CollisionTraverser, CollisionHandlerQueue, \
-    SamplerState, TransparencyAttrib, VBase3, RenderState, \
-    CullFaceAttrib, ColorWriteAttrib, ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, GraphicsOutput, \
-    GraphicsPipe, FrameBufferProperties
+    SamplerState, TransparencyAttrib, RenderState, CullFaceAttrib, ColorWriteAttrib, \
+    ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, Shader, AuxBitplaneAttrib
 
 from block import Block
 
@@ -42,13 +39,22 @@ class PyCraft(ShowBase):
         self.sun.getLens().setNearFar(0.1, 20)
         self.sun.setShadowCaster(True, 4096, 4096)
         self.sun.setColorTemperature(7000)
-        self.sun.color = self.sun.color * 4
+        self.sun.color = self.sun.color * 2
         self.sun.setInitialState(RenderState.make(CullFaceAttrib.makeReverse(), ColorWriteAttrib.make(ColorWriteAttrib.COff)))
         self.sun.setCameraMask(Block.SHADOW_MASK)
 
         self.np_sun = self.render.attachNewNode(self.sun)
 
         self.np_sun.setPosHpr(0,0,10,35,-65,0)
+
+        # Create depth offset for cheap soft shadows
+        existentState = self.np_sun.node().getInitialState()
+        tempNP = NodePath(PandaNode("temporary NP"))
+        tempNP.setState(existentState)
+        tempNP.setDepthWrite(True, 1)
+        tempNP.setDepthOffset(2)
+        self.np_sun.node().setInitialState(tempNP.getState())
+
         self.render.setLight(self.np_sun)
 
 
@@ -57,9 +63,21 @@ class PyCraft(ShowBase):
 
         self.ambient = AmbientLight("ambient")
         self.ambient.setColorTemperature(7000)
-        self.ambient.color = self.ambient.color * 0.2
+        self.ambient.color = self.ambient.color * 0.5
         np_ambient = self.render.attachNewNode(self.ambient)
         self.render.setLight(np_ambient)
+
+        manager = FilterManager(self.win, self.cam)
+        tex = Texture()
+        dtex = Texture()
+        ntex = Texture()
+        quad = manager.renderSceneInto(colortex=tex, depthtex=dtex, auxtex=ntex, auxbits=AuxBitplaneAttrib.ABO_aux_normal)
+        quad.setShader(Shader.load(Shader.SL_GLSL,
+                                 vertex="post.vert",
+                                 fragment="post.frag"))
+        quad.setShaderInput("rendered", tex)
+        quad.setShaderInput("depth", dtex)
+        quad.setShaderInput("normal", ntex)
 
         # Targeting
         self.cTrav = CollisionTraverser("collisionTraverser")
