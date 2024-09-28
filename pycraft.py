@@ -202,7 +202,7 @@ class PyCraft(ShowBase):
         self.__place_key = state == True
 
     def hotbar(self, slot):
-        self.hud.select(slot)
+        self.hud.select_slot(slot)
 
     def controls(self, task):
         delta = self.globalClock.getDt()
