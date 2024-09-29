@@ -166,6 +166,17 @@ class PyCraft(ShowBase):
         self.crosshair.getTexture().setMinfilter(SamplerState.FT_nearest)
 
         self.hud = Hud(self)
+        self.hud.set_slot(1, "textures/item/apple.png")
+        self.hud.set_slot(2, "textures/item/arrow.png")
+        self.hud.set_slot(3, "textures/item/bell.png")
+        self.hud.set_slot(4, "textures/item/bow.png")
+        self.hud.set_slot(5, "textures/item/brick.png")
+        self.hud.set_slot(6, "textures/item/charcoal.png")
+        self.hud.set_slot(7, "textures/item/cookie.png")
+        self.hud.set_slot(8, "textures/item/diamond.png")
+        self.hud.set_slot(9, "textures/item/emerald.png")
+
+        self.aspect2d.setShaderAuto()
 
         blocks_data = json.load(open("blocks.json"))
 
