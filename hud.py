@@ -1,10 +1,11 @@
 import types
 
-from direct.gui.DirectGuiBase import DirectGuiBase
+from direct.gui.DirectGuiBase import DirectGuiBase, DirectGuiWidget
 from direct.gui.DirectLabel import DirectLabel
 from panda3d.core import TransparencyAttrib, PNMImageHeader, LVector3f, SamplerState, CullBinManager, Texture
 
 from block import Block
+from font import Font
 
 
 class Hud():
@@ -14,13 +15,15 @@ class Hud():
         self.__base = base
 
         (self.__hotbar, self.__hotbar_image)\
-            = self.make_label(image_file="textures/gui/sprites/hud/hotbar.png",
+            = self.make_label(name="Hotbar",
+                              image_file="textures/gui/sprites/hud/hotbar.png",
                               pos=(base.win.getXSize()/2, -base.win.getYSize()), anchor=(0, 0), align=(0, -1), parent=base.pixel2d)
         self.__hotbar.setTransparency(TransparencyAttrib.MAlpha)
         self.__hotbar.setBin("fixed", 0)
 
         (self.__active_slot, self.__active_slot_image)\
-            = self.make_label(image_file="textures/gui/sprites/hud/hotbar_selection.png",
+            = self.make_label(name="ActiveSlot",
+                              image_file="textures/gui/sprites/hud/hotbar_selection.png",
                               parent=self.__hotbar)
         self.__active_slot.setBin("fixed", 1)
 
@@ -28,22 +31,37 @@ class Hud():
         diff = (self.__active_slot_image.pixel_size.x - (self.__hotbarx / 9)) / 2
         self.__hotbar_over_x = self.__hotbar_image.pixel_size.x / (self.__hotbar_image.pixel_size.x + diff)
 
-        self.select_slot(1)
+        self.__font = Font(base, "font/include/default.json")
 
         self.__slot = [None, None, None, None, None, None, None, None, None]
         for i in range(9):
-            (self.__slot[i], _)\
-                = self.make_label(image_file="textures/item/apple.png",
+            (slot, _)\
+                = self.make_label(name=f"Slot{i}",
+                                  image_file="textures/item/apple.png",
                                   parent=self.__hotbar)
-            self.__slot[i].setX(self.__hotbarx * (i - 4) * self.__hotbar_over_x * 2 / 9)
-            self.__slot[i].setBin("fixed", 2)
+            slot.setX(self.__hotbarx * (i - 4) * self.__hotbar_over_x * 2 / 9)
+            slot.setBin("fixed", 2)
+            (label, _)\
+                = self.make_label(name=f"Slot{i}Count", text=f"0", pos=(0, 0), anchor=(1, 1), align=(-12, 0),
+                                  parent=slot,
+                                  text_fg=Block.color_from_hex("#FFFFFF"),
+                                  text_shadow=(0, 0, 0, 1),
+                                  text_scale=(26.0, 26.0),
+                                  text_font=self.__font.font
+                                  )
+            self.__slot[i] = {"label": slot, "count_label": label}
 
-        (self.__level, self.__level_image)\
-            = self.make_label(text="0", anchor=(0, 1), align=(0, -12),
+        (self.__level, _)\
+            = self.make_label(name=f"Level",
+                              text="0", pos=(0, 0), anchor=(0, -1), align=(0, -12),
                               parent=self.__hotbar,
                               text_fg=Block.color_from_hex("#7FFC1F"),
                               text_shadow=(0, 0, 0, 1),
-                              text_scale=(.1, .1))
+                              text_scale=(32.0, 32.0),
+                              text_font=self.__font.font
+                              )
+
+        self.select_slot(1)
 
     @staticmethod
     def get_image(path):
@@ -57,30 +75,33 @@ class Hud():
         result.scale = LVector3f(x, 1, y)
         return result
 
-    def make_label(self, image_file=None, text=None, parent:DirectGuiBase=None, pos=(0, 0), anchor=(0, 0), align=(0, 0), **kw):
+    def make_label(self, name=None, image_file=None, text=None, parent:DirectGuiWidget=None, pos=(0, 0), anchor=(0, 0), align=(0, 0), **kw):
         (px, py) = pos
         (ax, ay) = anchor
         (lx, ly) = align
-        px -= ax * (1 if parent is None or parent is not DirectGuiBase else parent["image_scale"].x)
-        py -= ay * (1 if parent is None or parent is not DirectGuiBase else parent["image_scale"].z)
+        px += ax * (1 if parent is None or not isinstance(parent, DirectGuiWidget) else parent.getWidth()/2)
+        py -= ay * (1 if parent is None or not isinstance(parent, DirectGuiWidget) else parent.getHeight()/2)
         if image_file is None:
-            px -= lx / Hud.PIXEL_SCALE
-            py -= ly / Hud.PIXEL_SCALE
-            return (DirectLabel(frameColor=(0, 0, 0, 0),
-                                       text=text,
-                                       pos=(px, py, py),
-                                       parent=self.__hotbar,
-                                       **kw), None)
+            px += lx
+            py -= ly
+            label = DirectLabel(frameColor=(0, 0, 0, 0),
+                                text=text,
+                                pos=(px, 0, py),
+                                parent=parent,
+                                **kw)
+            label.node().setName(name)
+            return (label, None)
         else:
             image = Hud.get_image(image_file)
-            px -= lx * image.pixel_size.x
+            px += lx * image.pixel_size.x
             py -= ly * image.pixel_size.y
             label = DirectLabel(frameColor=(0, 0, 0, 0),
-                               pos=(px, py, py),
-                               image=image.path,
-                               image_scale=image.scale,
-                               # scale=image.scale if parent is None or parent is not DirectGuiBase else image.scale / parent["scale"].x,
-                               parent=parent)
+                                pos=(px, 0, py),
+                                image=image.path,
+                                image_scale=image.scale,
+                                # scale=image.scale if parent is None or parent is not DirectGuiBase else image.scale / parent["scale"].x,
+                                parent=parent)
+            label.node().setName(name)
             label.component("image0").getTexture().setFormat(Texture.F_srgb_alpha)
             label.component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
             label.component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)
@@ -95,8 +116,8 @@ class Hud():
         self.__active_slot.setX(self.__hotbarx * (slot - 5) * self.__hotbar_over_x * 2 / 9)
 
     def set_slot(self, slot, item):
-        self.__slot[slot - 1].setImage(item)
-        self.__slot[slot - 1].component("image0").getTexture().setFormat(Texture.F_srgb_alpha)
-        self.__slot[slot - 1].component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
-        self.__slot[slot - 1].component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)
+        self.__slot[slot - 1]["label"].setImage(item)
+        self.__slot[slot - 1]["label"].component("image0").getTexture().setFormat(Texture.F_srgb_alpha)
+        self.__slot[slot - 1]["label"].component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
+        self.__slot[slot - 1]["label"].component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)
 
