@@ -1,9 +1,11 @@
 import json
 import math
 
+from direct.task.TaskManagerGlobal import taskMgr
 from panda3d.core import GeomVertexData, GeomVertexFormat, Geom, GeomVertexWriter, GeomTriangles, \
     Texture, Material, RenderState, TextureAttrib, MaterialAttrib, GeomNode, NodePath, \
-    CollisionNode, CollisionBox, LPoint3, TextureStage, BitMask32, LColor, PandaNode, Shader, GraphicsBuffer
+    CollisionNode, CollisionBox, LPoint3, TextureStage, BitMask32, LColor, PandaNode, Shader, GraphicsBuffer, \
+    SamplerState
 
 from hud import Hud
 from tool import Tool
@@ -33,6 +35,7 @@ class Block:
     block_geoms = {}
     geom_states = {}
     block_icons = {}
+    highlight_tex = None
     destroy = []
     destroyed_stage = -1
 
@@ -295,7 +298,21 @@ class Block:
                 overlay_ts.setMode(TextureStage.MDecal)
                 geom_np.setTexture(overlay_ts, overlay_tex)
             geom_np.setShaderInput("destroy", 0)
+            geom_np.setShaderInput("highlight", 0)
             self.geom_paths.append(geom_np)
+
+        # Load highlight texture if needed
+        if not Block.highlight_tex:
+            Block.highlight_tex = Texture("Texture")
+            Block.highlight_tex.setup2dTexture()
+            Block.highlight_tex.read(f"assets/textures/block/highlight.png")
+            Block.highlight_tex.setMagfilter(Texture.FTNearest)
+            Block.highlight_tex.setMinfilter(Texture.FTNearest)
+        self.highlight_ts = TextureStage("highlight")
+        self.highlight_ts.setSort(2)
+        self.highlight_ts.setCombineRgb(TextureStage.CMModulate,
+            TextureStage.CSPrevious, TextureStage.COSrcColor, TextureStage.CSTexture, TextureStage.COOneMinusSrcColor)
+        self.node_path.setTexture(self.highlight_ts, Block.highlight_tex)
 
         # Load destroy stage textures if needed
         if not Block.destroy:
@@ -306,7 +323,7 @@ class Block:
                 Block.destroy[i].setMagfilter(Texture.FTNearest)
                 Block.destroy[i].setMinfilter(Texture.FTNearest)
         self.destroy_ts = TextureStage("destroy")
-        self.destroy_ts.setSort(2)
+        self.destroy_ts.setSort(3)
         self.destroy_ts.setCombineRgb(TextureStage.CMModulate,
             TextureStage.CSPrevious, TextureStage.COSrcColor, TextureStage.CSTexture, TextureStage.COOneMinusSrcColor)
 
@@ -329,8 +346,6 @@ class Block:
         self.__best_tools = best_tools
         self.__minimum_tool = minimum_tool
 
-        self.get_icon(self._name)
-
     def __str__(self):
         return f"{self._name} @ {self.x},{self.y},{self.z}"
 
@@ -345,30 +360,44 @@ class Block:
         return primitive
 
     @staticmethod
-    def get_icon(name):
+    def set_icon_on(component, name):
         if name in Block.block_icons:
             if Block.block_icons[name] is not None:
                 print(f"{name} tex: {Block.block_icons[name].getName()}")
-            return Block.block_icons[name]
+                if component is not None:
+                    component.setTexture(Block.block_icons[name])
+            else:
+                print(f"Skip {name}")
+            return
 
-        hud = Hud.instance
+        def defer_icon(component, name):
+            hud = Hud.instance
 
-        Block.block_icons[name] = None
-        test_copy = Block.make(hud.block_scene, name, 0, 0, 0)
-        print(test_copy.node_path.getPos())
+            Block.block_icons[name] = None
+            test_copy = Block.make(hud.block_scene, name, 0, 0, 0)
 
-        # tex = Texture(f"{self._name}_item")
-        hud.block_buffer.setActive(True)
-        hud._base.graphicsEngine.renderFrame()
-        tex = hud.block_buffer.getTexture().makeCopy()
-        tex.setName(f"{name}_item")
 
-        # hud.block_buffer.setActive(False)
-        # hud.block_buffer.addRenderTexture(tex, GraphicsBuffer.RTMCopyTexture)
+            tex = Texture(f"{name}_item")
+            tex.setFormat(Texture.F_srgb_alpha)
+            tex.setMagfilter(SamplerState.FT_nearest)
+            tex.setMinfilter(SamplerState.FT_nearest)
+            hud.block_buffer.clearRenderTextures()
+            hud.block_buffer.addRenderTexture(tex, GraphicsBuffer.RTMBindOrCopy)
+            hud.block_buffer.setActive(True)
+            hud._base.graphicsEngine.renderFrame()
 
-        Block.block_icons[name] = tex
-        print(f"{name} tex: {tex.getName()}")
-        return hud.block_buffer.getTexture()
+            def set_result(component, name, test_copy):
+                test_copy.node_path.removeNode()
+                hud.block_buffer.setActive(False)
+
+                Block.block_icons[name] = tex
+                print(f"{name} tex: {tex.getName()}")
+                if component is not None:
+                    component.setTexture(tex)
+
+            print(f"grab {name} icon")
+            taskMgr.doMethodLater(0, set_result, f"grab {name} icon", (component, name, test_copy))
+        taskMgr.doMethodLater(0, defer_icon, f"make {name} icon", (component, name))
 
     @staticmethod
     def get_texture(texture, attrib = True):
@@ -402,6 +431,10 @@ class Block:
             case 6:
                 return LColor(tuple(int(hex[i:i + 2], 16) / 255.0 / factor for i in (0, 2, 4)) + (1,))
         return LColor(1, 0, 1, 1)
+
+    def highlight(self, on):
+        for path in self.geom_paths:
+            path.setShaderInput("highlight", 1 if on else 0)
 
     def destroy_ticks(self, tool_type = Tool.NO_TOOL, on_ground = True, in_water = False, tool_material = Tool.NO_TOOL, efficiency_level = 0,
                       haste_level = 0, mining_fatigue_level = 0, has_aqua_affinity = False):

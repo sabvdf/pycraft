@@ -5,9 +5,11 @@
 uniform sampler2D p3d_Texture0;
 uniform sampler2D p3d_Texture1;
 uniform sampler2D p3d_Texture2;
+uniform sampler2D p3d_Texture3;
 uniform int overlay;
 uniform vec4 overlayColor;
 uniform int destroy;
+uniform int highlight;
 uniform vec4 p3d_ColorScale;
 
 in vec2 texcoord;
@@ -37,11 +39,15 @@ void main() {
   vec4 color0 = texture(p3d_Texture0, texcoord);
   vec4 color1 = texture(p3d_Texture1, texcoord);
   vec4 tex = vec4(mix(color0.rgb * p3d_ColorScale.rgb, color1.rgb * overlayColor.rgb, overlay * color1.a), 1);
-  vec4 overlay_tex;
   if (destroy == 1)
   {
-      overlay_tex = texture(overlay == 0 ? p3d_Texture1 : p3d_Texture2, texcoord);
+      vec4 overlay_tex = texture(overlay == 0 ? p3d_Texture2 : p3d_Texture3, texcoord);
       tex.rgb *= one3 - overlay_tex.rgb;
+  }
+  if (highlight == 1)
+  {
+      vec4 highlight_tex = texture(overlay == 0 ? p3d_Texture1 : p3d_Texture2, texcoord);
+      tex = vec4(mix(tex.rgb + highlight_tex.a * highlight_tex.rgb, highlight_tex.rgb, highlight_tex.a), 1);
   }
 
   p3d_FragColor = p3d_LightModel.ambient * p3d_Material.ambient * tex;

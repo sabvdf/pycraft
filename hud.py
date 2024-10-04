@@ -7,7 +7,7 @@ from direct.gui.DirectLabel import DirectLabel
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import TransparencyAttrib, PNMImageHeader, LVector3f, SamplerState, CullBinManager, Texture, NodePath, \
     FrameBufferProperties, WindowProperties, GraphicsPipe, Camera, GraphicsOutput, OrthographicLens, LColor, \
-    DirectionalLight, RenderState, CullFaceAttrib, ColorWriteAttrib
+    DirectionalLight, RenderState, CullFaceAttrib, ColorWriteAttrib, LVector2i
 
 from font import Font
 
@@ -34,11 +34,15 @@ class ItemSlot():
                 self.item = item
                 if exists(f"assets/textures/item/{item}.png"):
                     self.image_label.setImage(f"assets/textures/item/{item}.png")
+                    self.image_label.component("image0").getTexture().setFormat(Texture.F_srgb_alpha)
+                    self.image_label.component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
+                    self.image_label.component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)
                 elif exists(f"assets/textures/block/{item}.png"):
-                    self.image_label.setImage(Hud.get_block_image(item))
-                self.image_label.component("image0").getTexture().setFormat(Texture.F_srgb_alpha)
-                self.image_label.component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
-                self.image_label.component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)
+                    from block import Block
+
+                    if not self.image_label.hascomponent("image0"):
+                        self.image_label.setImage(f"assets/textures/block/empty.png")
+                    Block.set_icon_on(self.image_label.component("image0"), item)
 
             if count > 1:
                 self.count_label.show()
@@ -63,9 +67,6 @@ class Hud():
         win_prop = WindowProperties(size=(32, 32))
         flags = GraphicsPipe.BF_refuse_window
         self.block_buffer: GraphicsOutput = base.graphicsEngine.makeOutput(base.pipe, "Block Item Buffer", -100, fb_prop, win_prop, flags, base.win.getGsg(), base.win)
-        self.block_buffer.addRenderTexture(Texture(), GraphicsOutput.RTMCopyTexture)
-        # self.block_buffer.setOneShot(True)
-        self.block_buffer.setActive(False)
 
         from block import Block
 
@@ -115,7 +116,7 @@ class Hud():
         for i in range(9):
             (slot, _)\
                 = self.make_label(name=f"Slot{i}",
-                                  image_file="assets/textures/item/apple.png",
+                                  image_file="assets/textures/block/empty.png",
                                   parent=self.__hotbar)
             slot.setX(self.__hotbarx * (i - 4) * self.__hotbar_over_x * 2 / 9)
             slot.setBin("fixed", 2)
@@ -145,29 +146,18 @@ class Hud():
     def get_image(self, path):
         result = types.SimpleNamespace()
         if "/block/" in path:
-            image = Hud.get_block_image(path)
-            result.path = "assets/textures/item/apple.png"
-            result.texture = image
-            result.pixel_size = (32, 32)
+            result.path = "assets/textures/block/empty.png"
+            result.pixel_size = LVector2i(32, 32)
         else:
             pnm = PNMImageHeader()
             pnm.readHeader(path)
             result.path = path
-            result.texture = None
             result.pixel_size = pnm.getSize()
 
         (x, y) = result.pixel_size
         result.aspect_scale = LVector3f(1, 1, y / x) if x > y else LVector3f(x / y, 1, 1)
         result.scale = LVector3f(x, 1, y)
         return result
-
-    @staticmethod
-    def get_block_image(path):
-
-        from block import Block
-
-        block_name = path.replace("assets/textures/block/", "").replace(".png", "")
-        return Block.block_icons[block_name]
 
     def make_label(self, name=None, image_file=None, text=None, parent:DirectGuiWidget=None, pos=(0, 0), anchor=(0, 0), align=(0, 0), **kw):
         (px, py) = pos
@@ -195,8 +185,6 @@ class Hud():
                                 image_scale=image.scale,
                                 parent=parent)
             label.node().setName(name)
-            if image.texture is not None:
-                label.component("image0").setTexture(image.texture)
             label.component("image0").getTexture().setFormat(Texture.F_srgb_alpha)
             label.component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
             label.component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)

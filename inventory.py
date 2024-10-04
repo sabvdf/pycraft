@@ -3,10 +3,12 @@ class InventorySlot:
     count: int = 0
 
 class Inventory:
+    instance = None
     BAR_SLOTS = 9
     BAG_SLOTS = 36
     slots: list[InventorySlot] = []
     def __init__(self, base):
+        Inventory.instance = self
         self.base = base
         for s in range(self.BAR_SLOTS + self.BAG_SLOTS):
             self.slots.append(InventorySlot())

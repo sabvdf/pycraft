@@ -5,13 +5,14 @@ from direct.filter.FilterManager import FilterManager
 from direct.gui.OnscreenImage import OnscreenImage
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import DirectionalLight, AmbientLight, WindowProperties, \
-    Vec4, CollisionNode, CollisionSegment, CollisionTraverser, CollisionHandlerQueue, \
+    CollisionNode, CollisionSegment, CollisionTraverser, CollisionHandlerQueue, \
     SamplerState, TransparencyAttrib, RenderState, CullFaceAttrib, ColorWriteAttrib, \
     ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, Shader, AuxBitplaneAttrib
 
 from block import Block
 from hud import Hud
 from inventory import Inventory
+from item import Item
 
 
 class PyCraft(ShowBase):
@@ -22,7 +23,6 @@ class PyCraft(ShowBase):
     destroyed_ticks = 0
     destroy_delay = 0
     ticks = 0
-    items_data = {}
 
     def __init__(self):
         ShowBase.__init__(self)
@@ -96,29 +96,6 @@ class PyCraft(ShowBase):
         picker_node.addSolid(self.target_ray)
         self.cTrav.addCollider(picker_np, self.targetHandler)
 
-        # Targeted block highlight
-        self.highlight = LineNodePath(self.render, colorVec=Vec4(0, 0, 0, 1), thickness=5)
-        self.highlight.drawLines([((-0.502, -0.502, -0.502), (-0.502, 0.502, -0.502))])
-        self.highlight.drawLines([((-0.502, 0.502, -0.502), (0.502, 0.502, -0.502))])
-        self.highlight.drawLines([((0.502, 0.502, -0.502), (0.502, -0.502, -0.502))])
-        self.highlight.drawLines([((0.502, -0.502, -0.502), (-0.502, -0.502, -0.502))])
-
-        self.highlight.drawLines([((-0.502, -0.502, -0.502), (-0.502, -0.502, 0.502))])
-        self.highlight.drawLines([((-0.502, 0.502, -0.502), (-0.502, 0.502, 0.502))])
-        self.highlight.drawLines([((0.502, 0.502, -0.502), (0.502, 0.502, 0.502))])
-        self.highlight.drawLines([((0.502, -0.502, -0.502), (0.502, -0.502, 0.502))])
-
-        self.highlight.drawLines([((-0.502, -0.502, 0.502), (-0.502, 0.502, 0.502))])
-        self.highlight.drawLines([((-0.502, 0.502, 0.502), (0.502, 0.502, 0.502))])
-        self.highlight.drawLines([((0.502, 0.502, 0.502), (0.502, -0.502, 0.502))])
-        self.highlight.drawLines([((0.502, -0.502, 0.502), (-0.502, -0.502, 0.502))])
-        self.highlight.create()
-        self.highlight.reparentTo(self.render)
-        self.highlight.setPos(0,0,0)
-        self.highlight.setRenderModeThickness(5)
-        self.highlight.setCollideMask(0)
-        self.highlight.hide(Block.SHADOW_MASK)
-
         # Controls
         self.mouse_sensitivity_x = 90
         self.mouse_sensitivity_y = 60
@@ -180,7 +157,8 @@ class PyCraft(ShowBase):
             Block.blocks_data[block["name"]] = block
         items_data = json.load(open("data/items.json"))
         for item in items_data:
-            PyCraft.items_data[item["id"]] = item
+            Item.items_data[item["id"]] = item
+            Item.items_data[item["name"]] = item
 
         # Generate world
         cols, rows, layers = 27, 27, 2
@@ -296,16 +274,18 @@ class PyCraft(ShowBase):
             self.destroy_block(target)
 
         if target:
-            self.highlight.setPos(target.node_path.getPos())
-            self.highlight.show()
+            if self.target_block is not None:
+                self.target_block.highlight(False)
+            target.highlight(True)
         else:
-            self.highlight.hide()
+            if self.target_block is not None:
+                self.target_block.highlight(False)
         self.target_block = target
 
     def destroyed(self, block: Block):
         drops = block.data["drops"]
         if len(drops) > 0:
-            item = self.items_data[drops[0]] # TODO: figure out multiple drops
+            item = Item.items_data[drops[0]] # TODO: figure out multiple drops
             self.inventory.add(item["name"], 1)
         if self.destroy_ticks > 1:
             self.destroy_block(None)
