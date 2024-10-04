@@ -1,9 +1,11 @@
+import json
 import math
 
 from panda3d.core import GeomVertexData, GeomVertexFormat, Geom, GeomVertexWriter, GeomTriangles, \
     Texture, Material, RenderState, TextureAttrib, MaterialAttrib, GeomNode, NodePath, \
-    CollisionNode, CollisionBox, LPoint3, TextureStage, BitMask32, LColor, PandaNode, Shader
+    CollisionNode, CollisionBox, LPoint3, TextureStage, BitMask32, LColor, PandaNode, Shader, GraphicsBuffer
 
+from hud import Hud
 from tool import Tool
 
 
@@ -23,19 +25,25 @@ class Block:
     SHADOW_MASK = BitMask32(0x010)
     COLLIDE_MASK = BitMask32(0x100)
     __shader = None
+
+    blocks_data = {}
+
     textures = {}
     materials = {}
     block_geoms = {}
     geom_states = {}
+    block_icons = {}
     destroy = []
     destroyed_stage = -1
 
     @staticmethod
-    def make(base, block_data, block_model, x, y, z):
+    def make(base, name_or_id, x, y, z):
         parts = []
         textures = []
         tints = []
         overlays = []
+        block_data = Block.blocks_data[name_or_id]
+        block_model = json.load(open(f"assets/models/block/{block_data["name"]}.json"))
         texture_data = block_model["textures"]
         match block_model["parent"]:
             case "minecraft:block/cube_all":
@@ -76,10 +84,12 @@ class Block:
                 textures.append(texture_data[texture_side])
                 overlays.append((None, None))
 
-        return Block(base, geom_type, block_data["name"], parts, textures, overlays, tints, block_data["hardness"], [Tool.TYPE_SHOVEL], Tool.NO_TOOL, x, y, z)
+        return Block(base, geom_type, block_data, block_model, parts, textures, overlays, tints, [Tool.TYPE_SHOVEL], Tool.NO_TOOL, x, y, z)
 
-    def __init__(self, base, geom_type, name, parts, textures, overlays, tints, hardness, best_tools, minimum_tool, x, y, z):
-        self.__name = name
+    def __init__(self, base, geom_type, block_data, block_model, parts, textures, overlays, tints, best_tools, minimum_tool, x, y, z):
+        self.data = block_data
+        self.model = block_model
+        self._name = block_data["name"]
         # Load shader if needed
         if Block.__shader is None:
             Block.__shader = Shader.load(Shader.SL_GLSL,
@@ -249,13 +259,13 @@ class Block:
                     Block.block_geoms[geom_type][5].addPrimitive(bottom)
 
         # Load texture if not loaded yet
-        if self.__name not in Block.textures:
-            Block.textures[self.__name] = []
+        if self._name not in Block.textures:
+            Block.textures[self._name] = []
             for texture in textures:
-                Block.textures[self.__name].append(self.get_texture(texture))
+                Block.textures[self._name].append(self.get_texture(texture))
 
         # Create root node
-        block_node = PandaNode(f"{self.__name}@{x},{y},{z}")
+        block_node = PandaNode(f"{self._name}@{x},{y},{z}")
         self.node_path = NodePath(block_node)
         # Create geometry nodes
         self.geom_paths = []
@@ -265,7 +275,7 @@ class Block:
             tint = tints[p] if len(tints) > p else ""
             geom_index = f"{texture}{tint}"
             if geom_index not in Block.geom_states:
-                Block.geom_states[geom_index] = RenderState.make(Block.textures[self.__name][p], MaterialAttrib.make(Material("default")))
+                Block.geom_states[geom_index] = RenderState.make(Block.textures[self._name][p], MaterialAttrib.make(Material("default")))
             geom_node.addGeom(Block.block_geoms[geom_type][p], Block.geom_states[geom_index])
             geom_np = NodePath(geom_node)
             geom_np.reparentTo(self.node_path)
@@ -300,7 +310,10 @@ class Block:
         self.destroy_ts.setCombineRgb(TextureStage.CMModulate,
             TextureStage.CSPrevious, TextureStage.COSrcColor, TextureStage.CSTexture, TextureStage.COOneMinusSrcColor)
 
-        self.node_path.reparentTo(base.render)
+        if isinstance(base, NodePath):
+            self.node_path.reparentTo(base)
+        else:
+            self.node_path.reparentTo(base.render)
         self.node_path.setScale(0.5, 0.5, 0.5)
         self.node_path.showThrough(Block.SHADOW_MASK)
 
@@ -312,12 +325,14 @@ class Block:
         self.node_path.setPos(self.x, self.z, self.y)
 
         self.__base = base
-        self.__hardness = hardness
+        self.__hardness = block_data["hardness"]
         self.__best_tools = best_tools
         self.__minimum_tool = minimum_tool
 
+        self.get_icon(self._name)
+
     def __str__(self):
-        return f"{self.__name} @ {self.x},{self.y},{self.z}"
+        return f"{self._name} @ {self.x},{self.y},{self.z}"
 
     @staticmethod
     def make_primitive(sides):
@@ -328,6 +343,32 @@ class Block:
             primitive.addVertices(offset + 0, offset + 2, offset + 3)
         primitive.closePrimitive()
         return primitive
+
+    @staticmethod
+    def get_icon(name):
+        if name in Block.block_icons:
+            if Block.block_icons[name] is not None:
+                print(f"{name} tex: {Block.block_icons[name].getName()}")
+            return Block.block_icons[name]
+
+        hud = Hud.instance
+
+        Block.block_icons[name] = None
+        test_copy = Block.make(hud.block_scene, name, 0, 0, 0)
+        print(test_copy.node_path.getPos())
+
+        # tex = Texture(f"{self._name}_item")
+        hud.block_buffer.setActive(True)
+        hud._base.graphicsEngine.renderFrame()
+        tex = hud.block_buffer.getTexture().makeCopy()
+        tex.setName(f"{name}_item")
+
+        # hud.block_buffer.setActive(False)
+        # hud.block_buffer.addRenderTexture(tex, GraphicsBuffer.RTMCopyTexture)
+
+        Block.block_icons[name] = tex
+        print(f"{name} tex: {tex.getName()}")
+        return hud.block_buffer.getTexture()
 
     @staticmethod
     def get_texture(texture, attrib = True):
@@ -413,8 +454,6 @@ class Block:
             return 0
 
         ticks = math.ceil(1 / damage)
-
-        print(f"{self}: {ticks} to destroy")
         return ticks
 
     def destroy_stage(self, amount):

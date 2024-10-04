@@ -1,29 +1,107 @@
+import json
 import types
+from os.path import exists
 
 from direct.gui.DirectGuiBase import DirectGuiBase, DirectGuiWidget
 from direct.gui.DirectLabel import DirectLabel
-from panda3d.core import TransparencyAttrib, PNMImageHeader, LVector3f, SamplerState, CullBinManager, Texture
+from direct.showbase.ShowBase import ShowBase
+from panda3d.core import TransparencyAttrib, PNMImageHeader, LVector3f, SamplerState, CullBinManager, Texture, NodePath, \
+    FrameBufferProperties, WindowProperties, GraphicsPipe, Camera, GraphicsOutput, OrthographicLens, LColor, \
+    DirectionalLight, RenderState, CullFaceAttrib, ColorWriteAttrib
 
-from block import Block
 from font import Font
+
+
+class ItemSlot():
+    item: str
+    count: int
+    image_label: DirectLabel
+    count_label: DirectLabel
+    def __init__(self, image_label: DirectLabel, count_label: DirectLabel, item: str = "", count: int = 0):
+        self.image_label = image_label
+        self.count_label = count_label
+        self.set(item, count)
+
+    def set(self, item, count):
+        if item is None or count == 0:
+            self.item = ""
+            self.count = 0
+            self.image_label.hide()
+            self.count_label.hide()
+        else:
+            self.image_label.show()
+            if self.item != item:
+                self.item = item
+                if exists(f"assets/textures/item/{item}.png"):
+                    self.image_label.setImage(f"assets/textures/item/{item}.png")
+                elif exists(f"assets/textures/block/{item}.png"):
+                    self.image_label.setImage(Hud.get_block_image(item))
+                self.image_label.component("image0").getTexture().setFormat(Texture.F_srgb_alpha)
+                self.image_label.component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
+                self.image_label.component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)
+
+            if count > 1:
+                self.count_label.show()
+            if self.count != count:
+                self.count = count
+                self.count_label.setText(str(count))
 
 
 class Hud():
     PIXEL_SCALE = 500
+    instance = None
 
-    def __init__(self, base):
-        self.__base = base
+    def __init__(self, base: ShowBase):
+        Hud.instance = self
+        self._base = base
+
+        # Set up offscreen buffer to render block items
+        fb_prop = FrameBufferProperties()
+        fb_prop.setRgbColor(True)
+        fb_prop.setRgbaBits(8, 8, 8, 8)
+        fb_prop.setDepthBits(0)
+        win_prop = WindowProperties(size=(32, 32))
+        flags = GraphicsPipe.BF_refuse_window
+        self.block_buffer: GraphicsOutput = base.graphicsEngine.makeOutput(base.pipe, "Block Item Buffer", -100, fb_prop, win_prop, flags, base.win.getGsg(), base.win)
+        self.block_buffer.addRenderTexture(Texture(), GraphicsOutput.RTMCopyTexture)
+        # self.block_buffer.setOneShot(True)
+        self.block_buffer.setActive(False)
+
+        from block import Block
+
+        block_camnode = base.makeCamera(self.block_buffer, mask=Block.SHADOW_MASK)
+        self.block_scene = NodePath("Block Item Scene")
+        block_camnode.reparentTo(self.block_scene)
+        self.block_camera: Camera = block_camnode.node()
+        lens = OrthographicLens()
+        lens.setFilmSize(1.75, 1.75)
+        lens.setNearFar(-100, 100)
+        self.block_camera.setLens(lens)
+        self.block_buffer.setClearColor(LColor(0, 0, 0, 0))
+        block_camnode.setPos(-10, -10, 9.9)
+        block_camnode.setHpr(-45, -35, 0)
+        itemsun = DirectionalLight("item_sun")
+        itemsun.getLens().setFilmSize(100, 100)
+        itemsun.getLens().setNearFar(0.1, 20)
+        itemsun.setColorTemperature(7000)
+        itemsun.color = itemsun.color * 4
+        itemsun.setInitialState(RenderState.make(CullFaceAttrib.makeReverse(), ColorWriteAttrib.make(ColorWriteAttrib.COff)))
+        itemsun.setCameraMask(Block.SHADOW_MASK)
+        itemsun = self.block_scene.attachNewNode(itemsun)
+        itemsun.setPosHpr(0,0,10,-60,-55,0)
+        self.block_scene.setLight(itemsun)
+
 
         (self.__hotbar, self.__hotbar_image)\
             = self.make_label(name="Hotbar",
-                              image_file="textures/gui/sprites/hud/hotbar.png",
+                              image_file="assets/textures/gui/sprites/hud/hotbar.png",
                               pos=(base.win.getXSize()/2, -base.win.getYSize()), anchor=(0, 0), align=(0, -1), parent=base.pixel2d)
         self.__hotbar.setTransparency(TransparencyAttrib.MAlpha)
         self.__hotbar.setBin("fixed", 0)
 
         (self.__active_slot, self.__active_slot_image)\
             = self.make_label(name="ActiveSlot",
-                              image_file="textures/gui/sprites/hud/hotbar_selection.png",
+                              image_file="assets/textures/gui/sprites/hud/hotbar_selection.png",
                               parent=self.__hotbar)
         self.__active_slot.setBin("fixed", 1)
 
@@ -31,13 +109,13 @@ class Hud():
         diff = (self.__active_slot_image.pixel_size.x - (self.__hotbarx / 9)) / 2
         self.__hotbar_over_x = self.__hotbar_image.pixel_size.x / (self.__hotbar_image.pixel_size.x + diff)
 
-        self.__font = Font(base, "font/include/default.json")
+        self.__font = Font(base, "assets/font/include/default.json")
 
         self.__slot = [None, None, None, None, None, None, None, None, None]
         for i in range(9):
             (slot, _)\
                 = self.make_label(name=f"Slot{i}",
-                                  image_file="textures/item/apple.png",
+                                  image_file="assets/textures/item/apple.png",
                                   parent=self.__hotbar)
             slot.setX(self.__hotbarx * (i - 4) * self.__hotbar_over_x * 2 / 9)
             slot.setBin("fixed", 2)
@@ -49,7 +127,8 @@ class Hud():
                                   text_scale=(26.0, 26.0),
                                   text_font=self.__font.font
                                   )
-            self.__slot[i] = {"label": slot, "count_label": label}
+            slot.hide()
+            self.__slot[i] = ItemSlot(slot, label)
 
         (self.__level, _)\
             = self.make_label(name=f"Level",
@@ -63,17 +142,32 @@ class Hud():
 
         self.select_slot(1)
 
-    @staticmethod
-    def get_image(path):
-        pnm = PNMImageHeader()
-        pnm.readHeader(path)
+    def get_image(self, path):
         result = types.SimpleNamespace()
-        result.path = path
-        result.pixel_size = pnm.getSize()
+        if "/block/" in path:
+            image = Hud.get_block_image(path)
+            result.path = "assets/textures/item/apple.png"
+            result.texture = image
+            result.pixel_size = (32, 32)
+        else:
+            pnm = PNMImageHeader()
+            pnm.readHeader(path)
+            result.path = path
+            result.texture = None
+            result.pixel_size = pnm.getSize()
+
         (x, y) = result.pixel_size
         result.aspect_scale = LVector3f(1, 1, y / x) if x > y else LVector3f(x / y, 1, 1)
         result.scale = LVector3f(x, 1, y)
         return result
+
+    @staticmethod
+    def get_block_image(path):
+
+        from block import Block
+
+        block_name = path.replace("assets/textures/block/", "").replace(".png", "")
+        return Block.block_icons[block_name]
 
     def make_label(self, name=None, image_file=None, text=None, parent:DirectGuiWidget=None, pos=(0, 0), anchor=(0, 0), align=(0, 0), **kw):
         (px, py) = pos
@@ -92,16 +186,17 @@ class Hud():
             label.node().setName(name)
             return (label, None)
         else:
-            image = Hud.get_image(image_file)
+            image = self.get_image(image_file)
             px += lx * image.pixel_size.x
             py -= ly * image.pixel_size.y
             label = DirectLabel(frameColor=(0, 0, 0, 0),
                                 pos=(px, 0, py),
                                 image=image.path,
                                 image_scale=image.scale,
-                                # scale=image.scale if parent is None or parent is not DirectGuiBase else image.scale / parent["scale"].x,
                                 parent=parent)
             label.node().setName(name)
+            if image.texture is not None:
+                label.component("image0").setTexture(image.texture)
             label.component("image0").getTexture().setFormat(Texture.F_srgb_alpha)
             label.component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
             label.component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)
@@ -115,9 +210,6 @@ class Hud():
     def select_slot(self, slot):
         self.__active_slot.setX(self.__hotbarx * (slot - 5) * self.__hotbar_over_x * 2 / 9)
 
-    def set_slot(self, slot, item):
-        self.__slot[slot - 1]["label"].setImage(item)
-        self.__slot[slot - 1]["label"].component("image0").getTexture().setFormat(Texture.F_srgb_alpha)
-        self.__slot[slot - 1]["label"].component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
-        self.__slot[slot - 1]["label"].component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)
+    def set_slot(self, slot, item, count):
+        self.__slot[slot - 1].set(item, count)
 

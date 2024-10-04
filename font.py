@@ -88,7 +88,7 @@ class Font:
                                                 x * cw, 1 - (y + 1) * ch, 1))
                     egg.addChild(eggTex[char])
 
-                    self.make_geom(y + 12, 2 * x, right - left + 1, ph, char, eggTex[char])
+                    self.make_geom(h, 0, right - left + 1, ph, char, eggTex[char])
 
             self.font = StaticTextFont(loadEggData(egg))
 
@@ -146,7 +146,7 @@ class Font:
             poly.addVertex(v4)
 
         # Now create a single point where the origin of the next character will be.
-        v0 = self.make_vertex(LPoint2d(tex_x_size / self._pixels_per_unit, 0.0))
+        v0 = self.make_vertex(LPoint2d(1.2 * tex_x_size / self._pixels_per_unit, 0.0))
         point = EggPoint()
         group.addChild(point)
         point.addVertex(v0)

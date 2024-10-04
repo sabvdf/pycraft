@@ -11,18 +11,22 @@ from panda3d.core import DirectionalLight, AmbientLight, WindowProperties, \
 
 from block import Block
 from hud import Hud
+from inventory import Inventory
 
 
 class PyCraft(ShowBase):
+    instance = None
     target_block = None
     destroying = None
     destroy_ticks = 0
     destroyed_ticks = 0
     destroy_delay = 0
     ticks = 0
+    items_data = {}
 
     def __init__(self):
         ShowBase.__init__(self)
+        PyCraft.instance = self
 
         # Window setup
         wp = WindowProperties()
@@ -159,26 +163,24 @@ class PyCraft(ShowBase):
         self.camLens.setNear(0.01)
         self.body.setPosHpr(0, -5, 2.5, 0, 0, 0)
 
-        self.crosshair = OnscreenImage(image="textures/gui/sprites/hud/crosshair.png", pos=(0, 0, 0), scale=(.15, 1, .15))
-        self.crosshair.setImage(image="textures/gui/sprites/hud/crosshair.png", transform=None)
+        self.crosshair = OnscreenImage(image="assets/textures/gui/sprites/hud/crosshair.png", pos=(0, 0, 0), scale=(.15, 1, .15))
+        self.crosshair.setImage(image="assets/textures/gui/sprites/hud/crosshair.png", transform=None)
         self.crosshair.setTransparency(TransparencyAttrib.MPremultipliedAlpha)
         self.crosshair.getTexture().setMagfilter(SamplerState.FT_nearest)
         self.crosshair.getTexture().setMinfilter(SamplerState.FT_nearest)
 
         self.hud = Hud(self)
-        self.hud.set_slot(1, "textures/item/apple.png")
-        self.hud.set_slot(2, "textures/item/arrow.png")
-        self.hud.set_slot(3, "textures/item/bell.png")
-        self.hud.set_slot(4, "textures/item/bow.png")
-        self.hud.set_slot(5, "textures/item/brick.png")
-        self.hud.set_slot(6, "textures/item/charcoal.png")
-        self.hud.set_slot(7, "textures/item/cookie.png")
-        self.hud.set_slot(8, "textures/item/diamond.png")
-        self.hud.set_slot(9, "textures/item/emerald.png")
+        self.inventory = Inventory(self)
 
         self.aspect2d.setShaderAuto()
 
         blocks_data = json.load(open("data/blocks.json"))
+        for block in blocks_data:
+            Block.blocks_data[block["id"]] = block
+            Block.blocks_data[block["name"]] = block
+        items_data = json.load(open("data/items.json"))
+        for item in items_data:
+            PyCraft.items_data[item["id"]] = item
 
         # Generate world
         cols, rows, layers = 27, 27, 2
@@ -187,9 +189,8 @@ class PyCraft(ShowBase):
         for y in range(layers-1):
             for z in range(rows):
                 for x in range(cols):
-                    block_data = blocks_data[random.choice([1,8,9,34,46,144,164,255])]
-                    block_model = json.load(open(f"models/block/{block_data["name"]}.json"))
-                    block = Block.make(self, block_data, block_model, x-13, y+random.choice([0,1]), z-13)
+                    block_choice = random.choice([1,8,9,34,46,144,164,255])
+                    block = Block.make(self, block_choice, x-13, y+random.choice([0,1]), z-13)
                     self.add_block(block)
                     self.block_colliders[block.collision_node] = block
 
@@ -301,11 +302,14 @@ class PyCraft(ShowBase):
             self.highlight.hide()
         self.target_block = target
 
-    def destroyed(self, block):
+    def destroyed(self, block: Block):
+        drops = block.data["drops"]
+        if len(drops) > 0:
+            item = self.items_data[drops[0]] # TODO: figure out multiple drops
+            self.inventory.add(item["name"], 1)
         if self.destroy_ticks > 1:
             self.destroy_block(None)
             self.destroy_delay = 6
-        print(f"{block} destroyed!")
 
     def add_block(self, block):
         self.blocks[block.x][block.y][block.z] = block

@@ -5,7 +5,7 @@ win-title PyCraft v0.1
 fullscreen #f
 framebuffer-hardware #t
 framebuffer-software #f
-depth-bits 8
+depth-bits 16
 color-bits 8 8 8
 alpha-bits 8
 stencil-bits 0
@@ -33,3 +33,4 @@ gl-coordinate-system default
 framebuffer-srgb #t
 threading-model Cull/Draw
 sync-video #f
+show-buffers #f
