@@ -16,11 +16,9 @@ class Inventory:
     def add(self, item: str, count: int, slot: int = 0):
         while slot == 0 or (self.slots[slot].item is not None and self.slots[slot].item != item):
             slot += 1
-            print(f"{slot}: {self.slots[slot].item}")
             if slot >= len(self.slots):
                 print(f"No slot found for {count} {item} ({slot} >= {len(self.slots)})")
                 return 0
-        print(f"Adding {count} {item} to slot {slot}")
         self.set_item(slot, item, self.slots[slot].count + count)
         return slot
 

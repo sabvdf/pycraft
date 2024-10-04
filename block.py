@@ -363,11 +363,8 @@ class Block:
     def set_icon_on(component, name):
         if name in Block.block_icons:
             if Block.block_icons[name] is not None:
-                print(f"{name} tex: {Block.block_icons[name].getName()}")
                 if component is not None:
                     component.setTexture(Block.block_icons[name])
-            else:
-                print(f"Skip {name}")
             return
 
         def defer_icon(component, name):
@@ -391,11 +388,9 @@ class Block:
                 hud.block_buffer.setActive(False)
 
                 Block.block_icons[name] = tex
-                print(f"{name} tex: {tex.getName()}")
                 if component is not None:
                     component.setTexture(tex)
 
-            print(f"grab {name} icon")
             taskMgr.doMethodLater(0, set_result, f"grab {name} icon", (component, name, test_copy))
         taskMgr.doMethodLater(0, defer_icon, f"make {name} icon", (component, name))
 
