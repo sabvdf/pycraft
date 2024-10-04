@@ -83,8 +83,8 @@ class Block:
         # Load shader if needed
         if Block.__shader is None:
             Block.__shader = Shader.load(Shader.SL_GLSL,
-                                 vertex="lighting.vert",
-                                 fragment="lighting.frag")
+                                 vertex="shaders/lighting.vert",
+                                 fragment="shaders/lighting.frag")
 
         # Create geometry if needed
         if geom_type not in Block.block_geoms:
@@ -292,7 +292,7 @@ class Block:
             for i in range(10):
                 Block.destroy.append(Texture("Texture"))
                 Block.destroy[i].setup2dTexture()
-                Block.destroy[i].read(f"textures/block/destroy_stage_{i}.png")
+                Block.destroy[i].read(f"assets/textures/block/destroy_stage_{i}.png")
                 Block.destroy[i].setMagfilter(Texture.FTNearest)
                 Block.destroy[i].setMinfilter(Texture.FTNearest)
         self.destroy_ts = TextureStage("destroy")
@@ -333,7 +333,7 @@ class Block:
     def get_texture(texture, attrib = True):
         tex = Texture("Texture")
         tex.setup2dTexture()
-        tex.read(f"textures/{texture}.png".replace("minecraft:",""))
+        tex.read(f"assets/textures/{texture}.png".replace("minecraft:",""))
         tex.setMagfilter(Texture.FTNearest)
         tex.setMinfilter(Texture.FTNearest)
         if attrib:

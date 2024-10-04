@@ -41,7 +41,7 @@ class Font:
             self.group.setSwitchFlag(True)
             self.group.setSwitchFps(2.0)
 
-            self.texture = f"textures/{provider["file"].replace("minecraft:", "")}"
+            self.texture = f"assets/textures/{provider["file"].replace("minecraft:", "")}"
             self.ascent = int(provider["ascent"])
 
             image = PNMImage(self.texture)

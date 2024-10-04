@@ -74,8 +74,8 @@ class PyCraft(ShowBase):
         ntex = Texture()
         quad = manager.renderSceneInto(colortex=tex, depthtex=dtex, auxtex=ntex, auxbits=AuxBitplaneAttrib.ABO_aux_normal)
         quad.setShader(Shader.load(Shader.SL_GLSL,
-                                 vertex="post.vert",
-                                 fragment="post.frag"))
+                                 vertex="shaders/post.vert",
+                                 fragment="shaders/post.frag"))
         quad.setShaderInput("rendered", tex)
         quad.setShaderInput("depth", dtex)
         quad.setShaderInput("normal", ntex)
@@ -178,7 +178,7 @@ class PyCraft(ShowBase):
 
         self.aspect2d.setShaderAuto()
 
-        blocks_data = json.load(open("blocks.json"))
+        blocks_data = json.load(open("data/blocks.json"))
 
         # Generate world
         cols, rows, layers = 27, 27, 2
