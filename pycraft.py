@@ -7,7 +7,8 @@ from direct.showbase.ShowBase import ShowBase
 from panda3d.core import DirectionalLight, AmbientLight, WindowProperties, \
     CollisionNode, CollisionSegment, CollisionTraverser, CollisionHandlerQueue, \
     SamplerState, TransparencyAttrib, RenderState, CullFaceAttrib, ColorWriteAttrib, \
-    ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, Shader, AuxBitplaneAttrib
+    ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, Shader, AuxBitplaneAttrib, CollisionEntry, \
+    LVector3f
 
 from block import Block
 from hud import Hud
@@ -18,11 +19,19 @@ from item import Item
 class PyCraft(ShowBase):
     instance = None
     target_block = None
+    target_face = None
     destroying = None
     destroy_ticks = 0
     destroyed_ticks = 0
     destroy_delay = 0
     ticks = 0
+
+    WEST = LVector3f(1, 0, 0)
+    EAST = LVector3f(-1, 0, 0)
+    UP = LVector3f(0, 1, 0)
+    DOWN = LVector3f(0, -1, 0)
+    NORTH = LVector3f(0, 0, 1)
+    SOUTH = LVector3f(0, 0, -1)
 
     def __init__(self):
         ShowBase.__init__(self)
@@ -233,10 +242,20 @@ class PyCraft(ShowBase):
         self.cTrav.traverse(self.render)
         if self.targetHandler.getNumEntries() > 0:
             self.targetHandler.sortEntries()
-            target = self.targetHandler.getEntry(0).getIntoNodePath()
+            entry: CollisionEntry = self.targetHandler.getEntry(0)
+            target = entry.getIntoNodePath()
             if target in self.block_colliders:
-                if self.target_block != self.block_colliders[target]:
-                    self.target(self.block_colliders[target])
+                point = entry.getSurfacePoint(self.render) if entry.hasSurfacePoint() else None
+                face = self.target_face
+                if point is not None:
+                    face = point - target.getPos(self.render)
+                    x, y, z = abs(face.x), abs(face.y), abs(face.z)
+                    face.x = (1 if face.x > 0 else -1) if x > z and x > y else 0
+                    face.y = (1 if face.y > 0 else -1) if y > z and y > x else 0
+                    face.z = (1 if face.z > 0 else -1) if z > x and z > y else 0
+                if self.target_block != self.block_colliders[target] or self.target_face != face:
+                    print(point, target.getPos(self.render), point - target.getPos(self.render), face)
+                    self.target(self.block_colliders[target], face)
             else:
                 self.target(None)
         else:
@@ -266,7 +285,9 @@ class PyCraft(ShowBase):
         if target:
             target.destroy_stage(0)
 
-    def target(self, target):
+    def target(self, target, face = None):
+        self.target_face = face
+
         if target == self.target_block:
             return
 
