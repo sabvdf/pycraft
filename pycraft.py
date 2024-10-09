@@ -1,6 +1,5 @@
 import json, random, os
 
-from direct.directtools.DirectGeometry import LineNodePath
 from direct.filter.FilterManager import FilterManager
 from direct.gui.OnscreenImage import OnscreenImage
 from direct.showbase.ShowBase import ShowBase
@@ -8,7 +7,7 @@ from panda3d.core import DirectionalLight, AmbientLight, WindowProperties, \
     CollisionNode, CollisionSegment, CollisionTraverser, CollisionHandlerQueue, \
     SamplerState, TransparencyAttrib, RenderState, CullFaceAttrib, ColorWriteAttrib, \
     ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, Shader, AuxBitplaneAttrib, CollisionEntry, \
-    LVector3f
+    LVector3f, LineSegs, CollisionRay, LVector3i
 
 from block import Block
 from hud import Hud
@@ -18,20 +17,21 @@ from item import Item
 
 class PyCraft(ShowBase):
     instance = None
-    target_block = None
+    target_block: Block | None = None
     target_face = None
+    place_delay = 0
     destroying = None
     destroy_ticks = 0
     destroyed_ticks = 0
     destroy_delay = 0
     ticks = 0
 
-    WEST = LVector3f(1, 0, 0)
-    EAST = LVector3f(-1, 0, 0)
-    UP = LVector3f(0, 1, 0)
-    DOWN = LVector3f(0, -1, 0)
-    NORTH = LVector3f(0, 0, 1)
-    SOUTH = LVector3f(0, 0, -1)
+    WEST = LVector3i(1, 0, 0)
+    EAST = LVector3i(-1, 0, 0)
+    UP = LVector3i(0, 1, 0)
+    DOWN = LVector3i(0, -1, 0)
+    NORTH = LVector3i(0, 0, 1)
+    SOUTH = LVector3i(0, 0, -1)
 
     def __init__(self):
         ShowBase.__init__(self)
@@ -102,6 +102,7 @@ class PyCraft(ShowBase):
         picker_np = self.cam.attachNewNode(picker_node)
         picker_node.setFromCollideMask(Block.COLLIDE_MASK)
         self.target_ray = CollisionSegment(0, 0, 0, 0, 5.5, 0)
+        # self.target_ray = CollisionRay(0, 0, 0, 0, 1, 0)
         picker_node.addSolid(self.target_ray)
         self.cTrav.addCollider(picker_np, self.targetHandler)
 
@@ -120,6 +121,7 @@ class PyCraft(ShowBase):
         self.__right_key = False
         self.__break_key = False
         self.__place_key = False
+        self.__inventory_key = False
 
         self.accept("w", self.up_key, [True])
         self.accept("w-up", self.up_key, [False])
@@ -131,8 +133,10 @@ class PyCraft(ShowBase):
         self.accept("d-up", self.right_key, [False])
         self.accept("r", self.break_key, [True])
         self.accept("r-up", self.break_key, [False])
-        self.accept("e", self.place_key, [True])
-        self.accept("e-up", self.place_key, [False])
+        self.accept("q", self.place_key, [True])
+        self.accept("q-up", self.place_key, [False])
+        self.accept("e", self.inventory_key, [True])
+        self.accept("e-up", self.inventory_key, [False])
         self.accept("1", lambda s: self.hotbar(1) if s else None, [True])
         self.accept("2", lambda s: self.hotbar(2) if s else None, [True])
         self.accept("3", lambda s: self.hotbar(3) if s else None, [True])
@@ -170,16 +174,14 @@ class PyCraft(ShowBase):
             Item.items_data[item["name"]] = item
 
         # Generate world
-        cols, rows, layers = 27, 27, 2
+        cols, rows, layers = 27, 27, 8
         self.blocks = [[[None for _ in range(cols)] for _ in range(layers)] for _ in range(rows)]
         self.block_colliders = {}
-        for y in range(layers-1):
+        for y in range(1):
             for z in range(rows):
                 for x in range(cols):
                     block_choice = random.choice([1,8,9,34,46,144,164,255])
-                    block = Block.make(self, block_choice, x-13, y+random.choice([0,1]), z-13)
-                    self.add_block(block)
-                    self.block_colliders[block.collision_node] = block
+                    self.new_block(block_choice, x-13, y+random.choice([0,1]), z-13)
 
         self.taskMgr.setupTaskChain("game", numThreads=1, threadPriority=TP_high)
         self.game_clock = ClockObject()
@@ -199,6 +201,8 @@ class PyCraft(ShowBase):
         self.__break_key = state == True
     def place_key(self, state):
         self.__place_key = state == True
+    def inventory_key(self, state):
+        self.__inventory_key = state == True
 
     def hotbar(self, slot):
         self.hud.select_slot(slot)
@@ -244,30 +248,26 @@ class PyCraft(ShowBase):
             self.targetHandler.sortEntries()
             entry: CollisionEntry = self.targetHandler.getEntry(0)
             target = entry.getIntoNodePath()
-            if target in self.block_colliders:
-                point = entry.getSurfacePoint(self.render) if entry.hasSurfacePoint() else None
-                face = self.target_face
-                if point is not None:
-                    face = point - target.getPos(self.render)
-                    x, y, z = abs(face.x), abs(face.y), abs(face.z)
-                    face.x = (1 if face.x > 0 else -1) if x > z and x > y else 0
-                    face.y = (1 if face.y > 0 else -1) if y > z and y > x else 0
-                    face.z = (1 if face.z > 0 else -1) if z > x and z > y else 0
-                if self.target_block != self.block_colliders[target] or self.target_face != face:
-                    print(point, target.getPos(self.render), point - target.getPos(self.render), face)
-                    self.target(self.block_colliders[target], face)
+            if target in self.block_colliders and entry.hasSurfacePoint():
+                if entry.getSurfacePoint(self.cam).y > entry.getInteriorPoint(self.cam).y:
+                    point = entry.getInteriorPoint(self.render)
+                else:
+                    point = entry.getSurfacePoint(self.render)
+                face = point - target.getPos(self.render)
+                tface = LVector3i(0, 0, 0)
+                x, y, z = abs(face.x), abs(face.y), abs(face.z)
+                if x > z and x > y:
+                    tface.x = 1 if face.x > 0 else -1
+                elif y > z and y > x:
+                    tface.z = 1 if face.y > 0 else -1
+                else:
+                    tface.y = 1 if face.z > 0 else -1
+                if self.target_block != self.block_colliders[target] or self.target_face != tface:
+                    self.target(self.block_colliders[target], tface)
             else:
                 self.target(None)
         else:
             self.target(None)
-
-        if self.__break_key:
-            if self.destroy_delay > 0:
-                self.destroy_delay -= 1
-            elif self.target_block and not self.destroying:
-                self.destroy_block(self.target_block)
-        elif self.destroying:
-            self.destroy_block(None)
 
         return task.cont
 
@@ -303,14 +303,31 @@ class PyCraft(ShowBase):
                 self.target_block.highlight(False)
         self.target_block = target
 
+
+    def place_block(self):
+        (item, slot) = self.inventory.place()
+        if item is not None:
+            self.new_block(item,
+                           self.target_block.x + self.target_face.x,
+                           self.target_block.y + self.target_face.y,
+                           self.target_block.z + self.target_face.z)
+        self.place_delay = 4
+
+    def new_block(self, item, x, y, z):
+        block = Block.make(self, item, x, y, z)
+        # print(f"Placed {block._name} at {x},{y},{z} on tick {self.ticks}")
+        self.add_block(block)
+        self.block_colliders[block.collision_node] = block
+
     def destroyed(self, block: Block):
+        self.block_colliders.pop(block.collision_node)
         drops = block.data["drops"]
         if len(drops) > 0:
             item = Item.items_data[drops[0]] # TODO: figure out multiple drops
             self.inventory.add(item["name"], 1)
         if self.destroy_ticks > 1:
             self.destroy_block(None)
-            self.destroy_delay = 6
+            self.destroy_delay = 3
 
     def add_block(self, block):
         self.blocks[block.x][block.y][block.z] = block
@@ -327,6 +344,19 @@ class PyCraft(ShowBase):
         return task.cont
 
     def game_tick(self):
+        if self.__break_key:
+            if self.destroy_delay > 0:
+                self.destroy_delay -= 1
+            elif self.target_block and not self.destroying:
+                self.destroy_block(self.target_block)
+        elif self.destroying:
+            self.destroy_block(None)
+
+        if self.place_delay > 0:
+            self.place_delay -= 1
+        elif self.__place_key and self.target_block and self.inventory.can_place():
+            self.place_block()
+
         if self.destroying:
             self.destroyed_ticks += 1
             self.target_block.destroy_stage(self.destroyed_ticks / self.destroy_ticks)

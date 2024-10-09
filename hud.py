@@ -14,12 +14,14 @@ from font import Font
 
 class ItemSlot():
     item: str
+    is_block: bool
     count: int
     image_label: DirectLabel
     count_label: DirectLabel
     def __init__(self, image_label: DirectLabel, count_label: DirectLabel, item: str = "", count: int = 0):
         self.image_label = image_label
         self.count_label = count_label
+        self.is_block = False
         self.set(item, count)
 
     def set(self, item, count):
@@ -31,6 +33,7 @@ class ItemSlot():
         else:
             self.image_label.show()
             if self.item != item:
+                self.is_block = False
                 self.item = item
                 if exists(f"assets/textures/item/{item}.png"):
                     self.image_label.setImage(f"assets/textures/item/{item}.png")
@@ -38,6 +41,7 @@ class ItemSlot():
                     self.image_label.component("image0").getTexture().setMagfilter(SamplerState.FT_nearest)
                     self.image_label.component("image0").getTexture().setMinfilter(SamplerState.FT_nearest)
                 elif exists(f"assets/textures/block/{item}.png"):
+                    self.is_block = True
                     from block import Block
 
                     if not self.image_label.hascomponent("image0"):
@@ -46,6 +50,8 @@ class ItemSlot():
 
             if count > 1:
                 self.count_label.show()
+            else:
+                self.count_label.hide()
             if self.count != count:
                 self.count = count
                 self.count_label.setText(str(count))
@@ -112,7 +118,7 @@ class Hud():
 
         self.__font = Font(base, "assets/font/include/default.json")
 
-        self.__slot = [None, None, None, None, None, None, None, None, None]
+        self.__slots = [None, None, None, None, None, None, None, None, None]
         for i in range(9):
             (slot, _)\
                 = self.make_label(name=f"Slot{i}",
@@ -129,7 +135,7 @@ class Hud():
                                   text_font=self.__font.font
                                   )
             slot.hide()
-            self.__slot[i] = ItemSlot(slot, label)
+            self.__slots[i] = ItemSlot(slot, label)
 
         (self.__level, _)\
             = self.make_label(name=f"Level",
@@ -141,6 +147,7 @@ class Hud():
                               text_font=self.__font.font
                               )
 
+        self._slot = 1
         self.select_slot(1)
 
     def get_image(self, path):
@@ -196,8 +203,12 @@ class Hud():
         return LVector3f(s1.x*s2.x, s1.y*s2.y, s1.z*s2.z)
 
     def select_slot(self, slot):
+        self._slot = slot
         self.__active_slot.setX(self.__hotbarx * (slot - 5) * self.__hotbar_over_x * 2 / 9)
 
     def set_slot(self, slot, item, count):
-        self.__slot[slot - 1].set(item, count)
+        self.__slots[slot - 1].set(item, count)
+
+    def block_selected(self):
+        return self.__slots[self._slot - 1].is_block
 

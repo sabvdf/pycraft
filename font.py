@@ -16,7 +16,6 @@ class Font:
 
     def __init__(self, base: ShowBase, filename):
         self.base = base
-        print(f"Opening font {filename}")
         font_data = json.load(open(filename))
         for provider in font_data["providers"]:
 
