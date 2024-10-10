@@ -2,10 +2,11 @@ import json
 import math
 
 from direct.task.TaskManagerGlobal import taskMgr
+from panda3d.bullet import BulletRigidBodyNode, BulletBoxShape
 from panda3d.core import GeomVertexData, GeomVertexFormat, Geom, GeomVertexWriter, GeomTriangles, \
     Texture, Material, RenderState, TextureAttrib, MaterialAttrib, GeomNode, NodePath, \
     CollisionNode, CollisionBox, LPoint3, TextureStage, BitMask32, LColor, PandaNode, Shader, GraphicsBuffer, \
-    SamplerState
+    SamplerState, LVector3f
 
 from hud import Hud
 from tool import Tool
@@ -327,19 +328,25 @@ class Block:
         self.destroy_ts.setCombineRgb(TextureStage.CMModulate,
             TextureStage.CSPrevious, TextureStage.COSrcColor, TextureStage.CSTexture, TextureStage.COOneMinusSrcColor)
 
+        cnode = CollisionNode("collider")
+        self.collision_node = self.node_path.attachNewNode(cnode)
+        self.collision_node.node().addSolid(CollisionBox(LPoint3(0, 0, 0), .98, .98, .98))
+        self.collision_node.setCollideMask(Block.COLLIDE_MASK)
+
+        self.rigidbody = BulletRigidBodyNode()
+        self.rigidbody.addShape(BulletBoxShape(LVector3f(0.49, 0.49, 0.49)))
+
         if isinstance(base, NodePath):
-            self.node_path.reparentTo(base)
+            self.body = base.attachNewNode(self.rigidbody)
         else:
-            self.node_path.reparentTo(base.render)
+            self.body = base.render.attachNewNode(self.rigidbody)
+
+        self.node_path.reparentTo(self.body)
         self.node_path.setScale(0.5, 0.5, 0.5)
         self.node_path.showThrough(Block.SHADOW_MASK)
 
-        self.collision_node = self.node_path.attachNewNode(CollisionNode("collider"))
-        self.collision_node.node().addSolid(CollisionBox(LPoint3(0, 0, 0), .999, .999, .999))
-        self.collision_node.setCollideMask(Block.COLLIDE_MASK)
-
         self.x, self.y, self.z = x, y, z
-        self.node_path.setPos(self.x, self.z, self.y)
+        self.body.setPos(self.x, self.z, self.y)
 
         self.__base = base
         self.__hardness = block_data["hardness"]

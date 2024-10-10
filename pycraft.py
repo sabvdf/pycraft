@@ -3,13 +3,16 @@ import json, random, os
 from direct.filter.FilterManager import FilterManager
 from direct.gui.OnscreenImage import OnscreenImage
 from direct.showbase.ShowBase import ShowBase
+from panda3d.bullet import BulletWorld, BulletBoxShape, BulletRigidBodyNode, BulletCharacterControllerNode, \
+    BulletCapsuleShape, ZUp, BulletPlaneShape, BulletCylinderShape
 from panda3d.core import DirectionalLight, AmbientLight, WindowProperties, \
     CollisionNode, CollisionSegment, CollisionTraverser, CollisionHandlerQueue, \
     SamplerState, TransparencyAttrib, RenderState, CullFaceAttrib, ColorWriteAttrib, \
-    ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, Shader, AuxBitplaneAttrib, CollisionEntry, \
-    LVector3f, LineSegs, CollisionRay, LVector3i
+    ClockObject, TP_high, loadPrcFile, NodePath, PandaNode, Texture, Shader, AuxBitplaneAttrib, \
+    CollisionEntry, LVector3i, Vec3, LVector3f, BitMask32
 
 from block import Block
+from entity import Entity
 from hud import Hud
 from inventory import Inventory
 from item import Item
@@ -36,6 +39,25 @@ class PyCraft(ShowBase):
     def __init__(self):
         ShowBase.__init__(self)
         PyCraft.instance = self
+        self.world = BulletWorld()
+        self.world.setGravity(0.0, -32.0, 0.0)
+        absoluteFloor = BulletRigidBodyNode()
+        absoluteFloor.addShape(BulletPlaneShape(LVector3f(0, 0, 1), -64))
+        self.world.attach(absoluteFloor)
+
+        # Load data
+        blocks_data = json.load(open("data/blocks.json"))
+        for block in blocks_data:
+            Block.blocks_data[block["id"]] = block
+            Block.blocks_data[block["name"]] = block
+        items_data = json.load(open("data/items.json"))
+        for item in items_data:
+            Item.items_data[item["id"]] = item
+            Item.items_data[item["name"]] = item
+        entities_data = json.load(open("data/entities.json"))
+        for entity in entities_data:
+            Entity.entities_data[entity["id"]] = entity
+            Entity.entities_data[entity["name"]] = entity
 
         # Window setup
         wp = WindowProperties()
@@ -51,7 +73,7 @@ class PyCraft(ShowBase):
         self.sun = DirectionalLight("sun")
         self.sun.getLens().setFilmSize(100, 100)
         self.sun.getLens().setNearFar(0.1, 20)
-        self.sun.setShadowCaster(True, 4096, 4096)
+        # self.sun.setShadowCaster(True, 4096, 4096)
         self.sun.setColorTemperature(7000)
         self.sun.color = self.sun.color * 2
         self.sun.setInitialState(RenderState.make(CullFaceAttrib.makeReverse(), ColorWriteAttrib.make(ColorWriteAttrib.COff)))
@@ -97,7 +119,6 @@ class PyCraft(ShowBase):
         self.cTrav = CollisionTraverser("collisionTraverser")
         self.targetHandler = CollisionHandlerQueue()
 
-        self.cam.setPos(0, 0, 0)
         picker_node = CollisionNode("gazeRay")
         picker_np = self.cam.attachNewNode(picker_node)
         picker_node.setFromCollideMask(Block.COLLIDE_MASK)
@@ -107,7 +128,7 @@ class PyCraft(ShowBase):
         self.cTrav.addCollider(picker_np, self.targetHandler)
 
         # Controls
-        self.mouse_sensitivity_x = 90
+        self.mouse_sensitivity_x = 20000
         self.mouse_sensitivity_y = 60
         self.walk_speed = 6
         self.strafe_speed = 6
@@ -147,11 +168,18 @@ class PyCraft(ShowBase):
         self.accept("8", lambda s: self.hotbar(8) if s else None, [True])
         self.accept("9", lambda s: self.hotbar(9) if s else None, [True])
 
-        self.body = self.render.attachNewNode("body")
+        self._player_data = Entity.entities_data["player"]
+        # shape = BulletBoxShape(Vec3(self._player_data["width"], self._player_data["height"], self._player_data["width"]))
+        shape = BulletCylinderShape(self._player_data["width"] / 2, self._player_data["height"], ZUp)
+        self.player = BulletCharacterControllerNode(shape, 0.51, "Player")
+        self.body = self.render.attachNewNode(self.player)
         self.cam.reparentTo(self.body)
+        self.cam.setPosHpr(0, 0, 1.5, 0, 0, 0)
         self.camLens.setFov(80)
         self.camLens.setNear(0.01)
-        self.body.setPosHpr(0, -5, 2.5, 0, 0, 0)
+        self.body.setPosHpr(0, 0, 1, 0, 0, 0)
+        self.world.attach(self.player)
+        self.body.setCollideMask(BitMask32.allOn())
 
         self.crosshair = OnscreenImage(image="assets/textures/gui/sprites/hud/crosshair.png", pos=(0, 0, 0), scale=(.15, 1, .15))
         self.crosshair.setImage(image="assets/textures/gui/sprites/hud/crosshair.png", transform=None)
@@ -164,24 +192,15 @@ class PyCraft(ShowBase):
 
         self.aspect2d.setShaderAuto()
 
-        blocks_data = json.load(open("data/blocks.json"))
-        for block in blocks_data:
-            Block.blocks_data[block["id"]] = block
-            Block.blocks_data[block["name"]] = block
-        items_data = json.load(open("data/items.json"))
-        for item in items_data:
-            Item.items_data[item["id"]] = item
-            Item.items_data[item["name"]] = item
-
         # Generate world
         cols, rows, layers = 27, 27, 8
         self.blocks = [[[None for _ in range(cols)] for _ in range(layers)] for _ in range(rows)]
         self.block_colliders = {}
-        for y in range(1):
+        for y in range(layers):
             for z in range(rows):
                 for x in range(cols):
                     block_choice = random.choice([1,8,9,34,46,144,164,255])
-                    self.new_block(block_choice, x-13, y+random.choice([0,1]), z-13)
+                    self.new_block(block_choice, x-13, y-8, z-13)
 
         self.taskMgr.setupTaskChain("game", numThreads=1, threadPriority=TP_high)
         self.game_clock = ClockObject()
@@ -215,32 +234,30 @@ class PyCraft(ShowBase):
             y = self.mouseWatcherNode.getMouseY()
 
             if not self.mouse_reset:
-                if not x == 0:
-                    self.body.setH(self.body.getH() - x * self.mouse_sensitivity_x)
+                self.player.setAngularMovement(-x * self.mouse_sensitivity_x)
 
-                if 90 > self.cam.getP() > -90:
-                    self.cam.setP(self.cam.getP() + y * self.mouse_sensitivity_y)
-                # If the camera is at a -90 or 90 degrees angle, this code helps it not get stuck.
-                else:
-                    if self.cam.getP() > 90:
-                        self.cam.setP(self.cam.getP() - 1)
-                    elif self.cam.getP() < -90:
-                        self.cam.setP(self.cam.getP() + 1)
+                self.cam.setP(max(-90, min(self.cam.getP() + y * self.mouse_sensitivity_y, 90)))
 
             self.mouse_reset = False
 
             self.win.movePointer(0, int(self.win.getProperties().getXSize() / 2),
                                  int(self.win.getProperties().getYSize() / 2))
 
+        movement = LVector3f(0, 0, 0)
+
         if self.__up_key:
-            self.body.setY(self.body, self.walk_speed * delta)
+            movement.y = self.walk_speed
         if self.__down_key:
-            self.body.setY(self.body, -self.walk_speed * delta)
+            movement.y = -self.walk_speed
 
         if self.__left_key:
-            self.body.setX(self.body, -self.strafe_speed * delta)
+            movement.x = -self.strafe_speed
         if self.__right_key:
-            self.body.setX(self.body, self.strafe_speed * delta)
+            movement.x = self.strafe_speed
+
+        self.player.setLinearMovement(movement, True)
+
+        self.world.doPhysics(self.globalClock.getDt())
 
         # Raycast target
         self.cTrav.traverse(self.render)
@@ -321,6 +338,7 @@ class PyCraft(ShowBase):
 
     def destroyed(self, block: Block):
         self.block_colliders.pop(block.collision_node)
+        self.world.remove(block.rigidbody)
         drops = block.data["drops"]
         if len(drops) > 0:
             item = Item.items_data[drops[0]] # TODO: figure out multiple drops
@@ -331,6 +349,7 @@ class PyCraft(ShowBase):
 
     def add_block(self, block):
         self.blocks[block.x][block.y][block.z] = block
+        self.world.attach(block.rigidbody)
 
     def game_update(self, task):
         ftime = self.game_clock.getRealTime()
